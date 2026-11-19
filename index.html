@@ -43,7 +43,7 @@ table{border-collapse:collapse;width:100%;font-size:.85rem}
 th,td{padding:7px 10px;border-bottom:1px solid var(--line);text-align:left;white-space:nowrap}
 th{position:sticky;top:0;background:var(--card);cursor:pointer}
 td.n{text-align:right;font-variant-numeric:tabular-nums}
-#msg{padding:16px;color:var(--c)}
+#msg{margin:0 clamp(16px,4vw,40px);padding:12px 16px;border:1px solid var(--c);border-radius:8px;color:var(--c);background:var(--card)}
 </style>
 </head>
 <body>
@@ -84,9 +84,9 @@ td.n{text-align:right;font-variant-numeric:tabular-nums}
 <script>
 /* ===== ตั้งค่า ===== */
 const SHEET_ID  = "17Uh0ptdcQltDLTbb4y0vFZC5mmbflSxpSUGmrfnwfio";
-const SHEET_TAB = "dash";   // แท็บที่ไม่มีเลขกรมธรรม์
+const SHEET_TAB = "history_all";
 const CSV_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(SHEET_TAB)}`;
-const DONE = ["ส่งงานแล้ว"];
+const DONE = ["ส่งงานแล้ว"]; // สถานะที่ถือว่าเสร็จ นอกนั้นนับเป็น "ยังไม่ส่ง"
 
 /* ===== ตัวช่วย ===== */
 const $ = id => document.getElementById(id);
@@ -115,12 +115,17 @@ function toISO(s){
   else return "";
   return (y>=2020&&y<=2035)?`${y}-${mo}-${d}`:"";
 }
+function showMsg(t){ $("msg").hidden=!t; $("msg").textContent=t||""; }
+
 async function load(){
-  $("updated").textContent="กำลังโหลดข้อมูล…"; $("msg").hidden=true;
+  $("updated").textContent="กำลังโหลดข้อมูล…"; showMsg("");
   try{
     const res=await fetch(CSV_URL,{cache:"no-store"});
     if(!res.ok) throw new Error("HTTP "+res.status);
-    const rows=parseCSV(await res.text());
+    const text=await res.text();
+    if(/^\s*<(!doctype|html)/i.test(text))
+      throw new Error("ชีทไม่ได้แชร์ (ต้องตั้งเป็น ทุกคนที่มีลิงก์ > ผู้ดู) หรือไม่มีแท็บชื่อ "+SHEET_TAB);
+    const rows=parseCSV(text);
     const header=rows.shift().map(h=>h.trim());
     const ix=n=>header.indexOf(n);
     const I={
@@ -129,6 +134,7 @@ async function load(){
       nD:ix("วันที่บันทึกรับแจ้ง"), nT:ix("เวลาบันทึกรับแจ้ง"), nISO:ix("วันที่บันทึก ค.ศ."),
       fee:ix("ค่าใช้จ่ายสำรวจภัย"), hrs:ix("ชม.จากรับแจ้งถึงส่งงาน"), pulled:ix("ดึงข้อมูลเมื่อ")
     };
+    if(I.id<0) throw new Error("ไม่พบคอลัมน์ เลขที่รับแจ้ง ในแท็บ "+SHEET_TAB+" (หัวคอลัมน์ที่พบ: "+header.slice(0,6).join(", ")+")");
     const map=new Map();
     rows.forEach(c=>{
       const g=v=>v>=0?(c[v]||"").trim():"";
@@ -146,8 +152,9 @@ async function load(){
       map.set(o.id,o);
     });
     ALL=[...map.values()];
+    if(!ALL.length) throw new Error("อ่านชีทได้แต่ไม่มีแถวข้อมูล");
     const latest=ALL.map(x=>x.pulled).sort().pop();
-    $("updated").textContent="ข้อมูลล่าสุดจากชีท: "+(latest||"-");
+    $("updated").textContent="ข้อมูลล่าสุดจากชีท: "+(latest||"-")+" • "+ALL.length+" รายการ";
     const keepStatus=$("status").value;
     const sts=[...new Set(ALL.map(x=>x.status))].filter(Boolean);
     $("status").innerHTML='<option value="">ทั้งหมด</option>'+sts.map(s=>`<option>${s}</option>`).join("");
@@ -157,8 +164,7 @@ async function load(){
     if(!$("to").value) $("to").value=dates[dates.length-1]||"";
     render();
   }catch(e){
-    $("msg").hidden=false;
-    $("msg").textContent="โหลดข้อมูลไม่ได้ ("+e.message+") — ตรวจว่าแชร์ชีทให้เปิดอ่านได้ และมีแท็บชื่อ "+SHEET_TAB;
+    showMsg("โหลดข้อมูลไม่ได้: "+e.message);
     $("updated").textContent="";
   }
 }

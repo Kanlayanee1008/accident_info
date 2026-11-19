@@ -84,9 +84,9 @@ td.n{text-align:right;font-variant-numeric:tabular-nums}
 <script>
 /* ===== ตั้งค่า ===== */
 const SHEET_ID  = "17Uh0ptdcQltDLTbb4y0vFZC5mmbflSxpSUGmrfnwfio";
-const SHEET_TAB = "history_all";
+const SHEET_TAB = "dash";   // แท็บที่ไม่มีเลขกรมธรรม์
 const CSV_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(SHEET_TAB)}`;
-const DONE = ["ส่งงานแล้ว"]; // สถานะที่ถือว่าเสร็จ นอกนั้นนับเป็น "ยังไม่ส่ง"
+const DONE = ["ส่งงานแล้ว"];
 
 /* ===== ตัวช่วย ===== */
 const $ = id => document.getElementById(id);
@@ -106,12 +106,14 @@ function parseCSV(t){
   if(f||r.length){r.push(f);rows.push(r)}
   return rows;
 }
+/* แปลงเป็น yyyy-mm-dd รองรับ ค.ศ./พ.ศ. ปีนอก 2020-2035 = ไม่ใช้ */
 function toISO(s){
-  if(/^\d{4}-\d{2}-\d{2}/.test(s||"")) return s.slice(0,10);
-  const m=(s||"").match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
-  if(!m) return "";
-  const y=+m[3]>2400?+m[3]-543:+m[3];
-  return `${y}-${m[2].padStart(2,"0")}-${m[1].padStart(2,"0")}`;
+  s=(s||"").trim();
+  let y,mo,d,m;
+  if((m=s.match(/^(\d{4})-(\d{2})-(\d{2})/))){y=+m[1];mo=m[2];d=m[3];}
+  else if((m=s.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/))){y=+m[3];mo=m[2].padStart(2,"0");d=m[1].padStart(2,"0");if(y>2400)y-=543;}
+  else return "";
+  return (y>=2020&&y<=2035)?`${y}-${mo}-${d}`:"";
 }
 async function load(){
   $("updated").textContent="กำลังโหลดข้อมูล…"; $("msg").hidden=true;
@@ -132,14 +134,14 @@ async function load(){
       const g=v=>v>=0?(c[v]||"").trim():"";
       const o={
         status:g(I.status), id:g(I.id),
-        d:g(I.nD)||g(I.accD),            // วันที่บันทึกรับแจ้ง (ถ้าว่างใช้วันที่เกิดเหตุ)
+        d:g(I.nD)||g(I.accD),
         time:g(I.nT),
         fee:parseFloat(g(I.fee).replace(/,/g,""))||0,
         hrs:parseFloat(g(I.hrs)),
         pulled:g(I.pulled)
       };
       if(!o.id) return;
-      o.iso=toISO(g(I.nISO)||g(I.accISO)||o.d);
+      o.iso=toISO(g(I.nISO))||toISO(g(I.nD))||toISO(g(I.accISO))||toISO(g(I.accD));
       o.hour=parseInt(o.time.split(":")[0],10);
       map.set(o.id,o);
     });
@@ -156,13 +158,13 @@ async function load(){
     render();
   }catch(e){
     $("msg").hidden=false;
-    $("msg").textContent="โหลดข้อมูลไม่ได้ ("+e.message+") — ตรวจว่าแชร์ชีทให้เปิดอ่านได้ และชื่อแท็บคือ "+SHEET_TAB;
+    $("msg").textContent="โหลดข้อมูลไม่ได้ ("+e.message+") — ตรวจว่าแชร์ชีทให้เปิดอ่านได้ และมีแท็บชื่อ "+SHEET_TAB;
     $("updated").textContent="";
   }
 }
 function filtered(){
   const f=$("from").value,t=$("to").value,s=$("status").value,q=$("q").value.trim().toLowerCase();
-  return ALL.filter(x=>(!f||x.iso>=f)&&(!t||x.iso<=t)&&(!s||x.status===s)&&(!q||x.id.toLowerCase().includes(q)));
+  return ALL.filter(x=>(!f||(x.iso&&x.iso>=f))&&(!t||(x.iso&&x.iso<=t))&&(!s||x.status===s)&&(!q||x.id.toLowerCase().includes(q)));
 }
 function draw(key,cfg){
   if(charts[key]) charts[key].destroy();

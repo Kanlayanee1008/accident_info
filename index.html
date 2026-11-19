@@ -177,4 +177,123 @@ async function load(){
     ALL=[...map.values()];
     if(!ALL.length) throw new Error("อ่านชีทได้แต่ไม่มีแถวข้อมูล");
     const latest=ALL.map(x=>x.pulled).sort().pop();
-    $("updated").textContent="ข้อมูลล่าสุดจากชีท: "+(latest||"-")+" •
+    $("updated").textContent="ข้อมูลล่าสุดจากชีท: "+(latest||"-")+" • "+ALL.length+" รายการ";
+    const keepStatus=$("status").value;
+    const sts=[...new Set(ALL.map(x=>x.status))].filter(Boolean);
+    $("status").innerHTML='<option value="">ทั้งหมด</option>'+sts.map(s=>`<option>${s}</option>`).join("");
+    $("status").value=sts.includes(keepStatus)?keepStatus:"";
+    const dates=ALL.map(x=>x.iso).filter(Boolean).sort();
+    if(!$("from").value) $("from").value=dates[0]||"";
+    if(!$("to").value) $("to").value=dates[dates.length-1]||"";
+    render();
+  }catch(e){
+    showMsg("โหลดข้อมูลไม่ได้: "+e.message);
+    $("updated").textContent="";
+  }
+}
+function filtered(toOverride){
+  const f=$("from").value,t=toOverride||$("to").value,s=$("status").value,q=$("q").value.trim().toLowerCase();
+  return ALL.filter(x=>(!f||(x.iso&&x.iso>=f))&&(!t||(x.iso&&x.iso<=t))&&(!s||x.status===s)&&(!q||x.id.toLowerCase().includes(q)));
+}
+function draw(key,cfg){
+  if(charts[key]) charts[key].destroy();
+  charts[key]=new Chart($(key),cfg);
+}
+
+/* ===== KPI 5 ตัว (คำนวณเบื้องหลัง แสดงเป็นคะแนนรวมอย่างเดียว) ===== */
+const notCancel = x => !x.status.startsWith("ยกเลิก");
+const ratio = (arr,pred) => arr.length ? arr.filter(pred).length/arr.length : null;
+const KPIS = [
+  D => ratio(D.filter(x=>Number.isFinite(x.hrs)), x=>x.hrs<=SLA_H),                 // ส่งงานภายในเวลา
+  D => ratio(D.filter(notCancel), x=>DONE.includes(x.status)),                      // สถานะส่งงานแล้ว
+  D => ratio(D.filter(notCancel), x=>x.fee>0),                                      // ค่าสำรวจครบ
+  D => ratio(D.filter(x=>x.fee>0), x=>x.fee<=FEE_MAX),                              // ค่าสำรวจไม่เกินเพดาน
+  D => ratio(D.filter(notCancel), x=>x.iso&&Number.isFinite(x.hrs)),                // ข้อมูลวันที่ครบ
+];
+function scoreOf(D){
+  const r=KPIS.map(f=>f(D)).filter(v=>v!==null);
+  if(!r.length) return null;
+  return {avg:r.reduce((a,b)=>a+b,0)/r.length*100, pass:r.filter(v=>v*100>=TARGET).length, n:r.length};
+}
+function renderScore(D){
+  const s=scoreOf(D);
+  const C=376.99;
+  if(!s){
+    $("scoreV").textContent="–"; $("badge").textContent="ไม่มีข้อมูลในช่วงนี้"; $("badge").className="badge warn";
+    $("arc").style.strokeDashoffset=C; $("scoreSub").textContent=""; $("trend").textContent=""; return;
+  }
+  $("scoreV").innerHTML=s.avg.toFixed(1)+"<small>%</small>";
+  $("arc").style.strokeDashoffset=(C*(1-Math.min(s.avg,100)/100)).toFixed(1);
+  const all=s.pass===s.n;
+  $("arc").style.stroke=all||s.avg>=TARGET?"var(--ok)":"var(--b)";
+  $("badge").className="badge "+(all?"ok":"warn");
+  $("badge").textContent=all?`Perfect · ผ่านครบ ${s.n} ตัว`:`ผ่าน ${s.pass} จาก ${s.n} ตัว`;
+  $("scoreSub").textContent=`เป้าหมาย ≥ ${TARGET}% ต่อตัว • ช่วงวันที่ที่เลือก`;
+
+  const to=$("to").value;
+  let t="";
+  if(to){
+    const pd=prevDay(to), ps=scoreOf(filtered(pd));
+    if(ps){
+      const diff=s.avg-ps.avg, ab=Math.abs(diff).toFixed(1);
+      const cls=diff>0.05?"up":diff<-0.05?"down":"";
+      const txt=diff>0.05?`▲ ดีขึ้น ${ab} จุด`:diff<-0.05?`▼ ลดลง ${ab} จุด`:"— ทรงตัว";
+      t=`<span class="trend ${cls}">${txt}</span> เทียบ ${dmy(pd)} (${ps.avg.toFixed(1)}%)`;
+    }
+  }
+  $("trend").innerHTML=t;
+}
+
+function render(){
+  const D=filtered();
+  renderScore(D);
+
+  const css=getComputedStyle(document.documentElement);
+  const col=n=>css.getPropertyValue(n).trim();
+  Chart.defaults.font.family='"IBM Plex Sans Thai",sans-serif';
+  Chart.defaults.color=col("--mute");
+  const grid={color:col("--line")};
+
+  const byDay={};D.forEach(x=>{if(!x.iso)return;(byDay[x.iso]??={n:0,fee:0});byDay[x.iso].n++;byDay[x.iso].fee+=x.fee;});
+  const days=Object.keys(byDay).sort();
+  draw("cDaily",{data:{labels:days.map(d=>d.slice(5)),datasets:[
+    {type:"bar",label:"จำนวนงาน",data:days.map(d=>byDay[d].n),backgroundColor:col("--a"),yAxisID:"y",borderRadius:3},
+    {type:"line",label:"ค่าสำรวจ (บาท)",data:days.map(d=>byDay[d].fee),borderColor:col("--b"),backgroundColor:col("--b"),yAxisID:"y1",tension:.25,pointRadius:1}]},
+    options:{maintainAspectRatio:false,scales:{x:{grid:{display:false}},y:{grid,title:{display:true,text:"งาน"},beginAtZero:true,ticks:{precision:0}},y1:{position:"right",grid:{display:false},beginAtZero:true,title:{display:true,text:"บาท"}}}}});
+
+  const bySt={};D.forEach(x=>bySt[x.status]=(bySt[x.status]||0)+1);
+  draw("cStatus",{type:"doughnut",data:{labels:Object.keys(bySt),datasets:[{data:Object.values(bySt),backgroundColor:[col("--a"),col("--b"),col("--c"),col("--d"),"#8aa"],borderWidth:0}]},
+    options:{maintainAspectRatio:false,plugins:{legend:{position:"bottom"}}}});
+
+  const hrs=Array(24).fill(0);D.forEach(x=>{if(x.hour>=0&&x.hour<24)hrs[x.hour]++});
+  draw("cHour",{type:"bar",data:{labels:hrs.map((_,i)=>String(i).padStart(2,"0")),datasets:[{label:"จำนวนงาน",data:hrs,backgroundColor:col("--d"),borderRadius:3}]},
+    options:{maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{grid:{display:false}},y:{grid,beginAtZero:true,ticks:{precision:0}}}}});
+
+  const byFee={};D.forEach(x=>byFee[x.fee]=(byFee[x.fee]||0)+1);
+  const fees=Object.keys(byFee).map(Number).sort((a,b)=>a-b);
+  draw("cFee",{type:"bar",data:{labels:fees.map(f=>f+" บาท"),datasets:[{label:"จำนวนงาน",data:fees.map(f=>byFee[f]),backgroundColor:col("--c"),borderRadius:3}]},
+    options:{maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{grid:{display:false}},y:{grid,beginAtZero:true,ticks:{precision:0}}}}});
+
+  renderTable(D);
+}
+const COLS=[["status","สถานะ"],["id","เลขที่รับแจ้ง"],["d","วันที่บันทึกรับแจ้ง"],["time","เวลารับแจ้ง"],["fee","ค่าสำรวจ"],["hrs","ชม.ถึงส่งงาน"],["iso","วันที่ (ค.ศ.)"]];
+function cell(x,k){
+  if(k==="fee") return fmt(x.fee);
+  if(k==="hrs") return Number.isFinite(x.hrs)?x.hrs.toFixed(1):"";
+  return x[k]??"";
+}
+function renderTable(D){
+  $("tbl").querySelector("thead").innerHTML="<tr>"+COLS.map(c=>`<th data-k="${c[0]}">${c[1]}${sortKey===c[0]?(sortDir>0?" ▲":" ▼"):""}</th>`).join("")+"</tr>";
+  const val=(x,k)=>k==="hrs"?(Number.isFinite(x.hrs)?x.hrs:-1):x[k];
+  const S=[...D].sort((a,b)=>(val(a,sortKey)>val(b,sortKey)?1:val(a,sortKey)<val(b,sortKey)?-1:0)*sortDir);
+  $("tbl").querySelector("tbody").innerHTML=S.map(x=>"<tr>"+COLS.map(c=>`<td class="${(c[0]==="fee"||c[0]==="hrs")?"n":""}">${cell(x,c[0])}</td>`).join("")+"</tr>").join("");
+  $("tbl").querySelectorAll("th").forEach(th=>th.onclick=()=>{const k=th.dataset.k;sortDir=sortKey===k?-sortDir:1;sortKey=k;renderTable(filtered())});
+}
+["from","to","status"].forEach(i=>$(i).addEventListener("change",render));
+$("q").addEventListener("input",()=>renderTable(filtered()));
+$("reload").onclick=load;
+load();
+setInterval(load,5*60*1000);
+</script>
+</body>
+</html>

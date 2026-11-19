@@ -22,7 +22,7 @@ header{padding:20px clamp(16px,4vw,40px) 8px;display:flex;flex-wrap:wrap;gap:12p
 h1{margin:0;font-size:1.5rem;font-weight:700}
 .sub{color:var(--mute);font-size:.85rem}
 .controls{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
-.controls label,.score label{font-size:.8rem;color:var(--mute)}
+.controls label{font-size:.8rem;color:var(--mute)}
 input,select,button{font:inherit;font-size:.9rem;padding:6px 10px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--ink)}
 button{cursor:pointer;background:var(--a);color:#fff;border-color:var(--a)}
 button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--b);outline-offset:2px}
@@ -76,15 +76,14 @@ td.n{text-align:right;font-variant-numeric:tabular-nums}
 <main>
   <section class="score">
     <div class="ringbox">
-      <svg width="140" height="140" viewBox="0 0 140 140" role="img" aria-label="คะแนน KPI รายวัน">
+      <svg width="140" height="140" viewBox="0 0 140 140" role="img" aria-label="คะแนน KPI">
         <circle cx="70" cy="70" r="60" fill="none" stroke="var(--line)" stroke-width="13"/>
         <circle id="arc" cx="70" cy="70" r="60" fill="none" stroke="var(--ok)" stroke-width="13" stroke-linecap="round" transform="rotate(-90 70 70)" stroke-dasharray="376.99" stroke-dashoffset="376.99"/>
       </svg>
       <div class="ringval"><b id="scoreV">–</b><span>คะแนน KPI</span></div>
     </div>
     <div>
-      <label>วันที่ประเมิน <input type="date" id="kday" autocomplete="off"></label>
-      <div style="margin-top:8px"><span class="badge ok" id="badge">–</span></div>
+      <span class="badge ok" id="badge">–</span>
       <p id="scoreSub"></p>
       <p id="trend"></p>
     </div>
@@ -197,7 +196,6 @@ async function load(){
     if(!inited){
       $("from").value=dates[0]||"";
       $("to").value=dates[dates.length-1]||"";
-      $("kday").value=dates[dates.length-1]||"";
       inited=true;
     }
     render();
@@ -215,7 +213,7 @@ function draw(key,cfg){
   charts[key]=new Chart($(key),cfg);
 }
 
-/* ===== KPI รายวัน 5 ตัว: ตัวไหนผ่านเกณฑ์ได้ 1 ตัว  คะแนน = ผ่าน/5 ===== */
+/* ===== KPI 5 ตัวต่อวัน: ตัวไหนผ่านเกณฑ์ได้ 1 ตัว  คะแนนวัน = ผ่าน/5 ===== */
 const notCancel = x => !x.status.startsWith("ยกเลิก");
 const ratio = (arr,pred) => arr.length ? arr.filter(pred).length/arr.length*100 : null;
 const KPIS = [
@@ -225,38 +223,68 @@ const KPIS = [
   ["ค่าสำรวจไม่เกิน "+FEE_MAX,  D => ratio(D.filter(x=>x.fee>0), x=>x.fee<=FEE_MAX)],
   ["ข้อมูลวันที่ครบ",           D => ratio(D.filter(notCancel), x=>x.iso&&Number.isFinite(x.hrs))],
 ];
-function dayScore(iso){
-  const D=ALL.filter(x=>x.iso===iso);
-  if(!D.length) return null;
-  const res=KPIS.map(([n,f])=>({n,v:f(D)})).filter(r=>r.v!==null);
+function scoreOneDay(list){
+  const res=KPIS.map(([n,f])=>({n,v:f(list)})).filter(r=>r.v!==null);
   if(!res.length) return null;
   const pass=res.filter(r=>r.v>=TARGET).length;
-  return {pct:pass/res.length*100, pass, n:res.length, fails:res.filter(r=>r.v<TARGET), count:D.length};
+  return {pct:pass/res.length*100, pass, n:res.length, fails:res.filter(r=>r.v<TARGET).map(r=>r.n)};
+}
+function groupByDay(list){
+  const m={};
+  list.forEach(x=>{ if(x.iso) (m[x.iso]??=[]).push(x); });
+  return m;
+}
+/* คะแนนของช่วง = เฉลี่ยคะแนนรายวัน */
+function scoreRange(list){
+  const g=groupByDay(list), days=Object.keys(g).sort();
+  const sc=days.map(d=>({d,s:scoreOneDay(g[d])})).filter(r=>r.s);
+  if(!sc.length) return null;
+  const pct=sc.reduce((a,r)=>a+r.s.pct,0)/sc.length;
+  const perfectDays=sc.filter(r=>r.s.pass===r.s.n).length;
+  const failCount={};
+  sc.forEach(r=>r.s.fails.forEach(n=>failCount[n]=(failCount[n]||0)+1));
+  return {pct, days:sc.length, perfectDays, count:list.length, first:sc[0].d, last:sc[sc.length-1].d,
+          single:sc.length===1?sc[0].s:null, failCount};
 }
 function renderScore(){
-  const day=$("kday").value, C=376.99;
-  const s=day?dayScore(day):null;
+  const C=376.99, st=$("status").value, from=$("from").value;
+  const D=ALL.filter(x=>{
+    const f=$("from").value,t=$("to").value;
+    return (!f||(x.iso&&x.iso>=f))&&(!t||(x.iso&&x.iso<=t))&&(!st||x.status===st);
+  });
+  const s=scoreRange(D);
   if(!s){
-    $("scoreV").textContent="–"; $("badge").textContent="ไม่มีงานในวันที่เลือก"; $("badge").className="badge warn";
+    $("scoreV").textContent="–"; $("badge").textContent="ไม่มีงานในช่วงที่เลือก"; $("badge").className="badge warn";
     $("arc").style.strokeDashoffset=C; $("scoreSub").textContent=""; $("trend").textContent=""; return;
   }
+  const perfect=s.perfectDays===s.days;
   $("scoreV").innerHTML=Math.round(s.pct)+"<small>%</small>";
   $("arc").style.strokeDashoffset=(C*(1-s.pct/100)).toFixed(1);
-  const perfect=s.pass===s.n;
   $("arc").style.stroke=perfect?"var(--ok)":"var(--b)";
   $("badge").className="badge "+(perfect?"ok":"warn");
-  $("badge").textContent=perfect?`Perfect · ผ่านครบ ${s.n} KPI`:`ผ่าน ${s.pass} จาก ${s.n} KPI`;
-  $("scoreSub").textContent=`เป้าหมาย ≥ ${TARGET}% ต่อ KPI • ${s.count} งานในวันนี้`+(perfect?"":" • ไม่ผ่าน: "+s.fails.map(f=>`${f.n} (${f.v.toFixed(1)}%)`).join(", "));
-  const prevDays=[...new Set(ALL.map(x=>x.iso).filter(d=>d&&d<day))].sort();
+  if(s.single){
+    $("badge").textContent=perfect?`Perfect · ผ่านครบ ${s.single.n} KPI`:`ผ่าน ${s.single.pass} จาก ${s.single.n} KPI`;
+  }else{
+    $("badge").textContent=perfect?`Perfect · ผ่านครบ 5 KPI ทุกวัน (${s.days} วัน)`:`ผ่านครบ ${s.perfectDays} จาก ${s.days} วัน`;
+  }
+  const fails=Object.entries(s.failCount);
+  $("scoreSub").textContent=`เป้าหมาย ≥ ${TARGET}% ต่อ KPI • ${s.count} งาน • ${s.days} วัน`+
+    (fails.length?" • ไม่ผ่าน: "+fails.map(([n,c])=>s.single?n:`${n} (${c} วัน)`).join(", "):"");
+
+  /* เทียบกับช่วงก่อนหน้าที่มีจำนวนวันเท่ากัน */
   let t="";
-  for(let i=prevDays.length-1;i>=0;i--){
-    const p=dayScore(prevDays[i]);
-    if(p){
-      const diff=s.pct-p.pct, ab=Math.abs(diff).toFixed(0);
-      const cls=diff>0?"up":diff<0?"down":"";
-      const txt=diff>0?`▲ ดีขึ้น ${ab} จุด`:diff<0?`▼ ลดลง ${ab} จุด`:"— ทรงตัว";
-      t=`<span class="trend ${cls}">${txt}</span> เทียบ ${dmy(prevDays[i])} (${Math.round(p.pct)}%)`;
-      break;
+  if(from){
+    const prevAll=ALL.filter(x=>x.iso&&x.iso<from&&(!st||x.status===st));
+    const g=groupByDay(prevAll), pdays=Object.keys(g).sort().slice(-s.days);
+    if(pdays.length){
+      const ps=scoreRange(pdays.flatMap(d=>g[d]));
+      if(ps){
+        const diff=s.pct-ps.pct, ab=Math.abs(diff).toFixed(0);
+        const cls=diff>0?"up":diff<0?"down":"";
+        const txt=diff>0?`▲ ดีขึ้น ${ab} จุด`:diff<0?`▼ ลดลง ${ab} จุด`:"— ทรงตัว";
+        const lab=pdays.length===1?dmy(pdays[0]):dmy(pdays[0])+" – "+dmy(pdays[pdays.length-1]);
+        t=`<span class="trend ${cls}">${txt}</span> เทียบ ${lab} (${Math.round(ps.pct)}%)`;
+      }
     }
   }
   $("trend").innerHTML=t;
@@ -266,7 +294,6 @@ function render(){
   const D=filtered();
   renderScore();
 
-  /* การ์ดตัวเลขสรุป (ตามช่วงวันที่และสถานะที่เลือก) */
   const total=D.reduce((a,x)=>a+x.fee,0);
   const H=D.map(x=>x.hrs).filter(v=>Number.isFinite(v)&&v>=0);
   $("k1").textContent=fmt(D.length);
@@ -317,7 +344,6 @@ function renderTable(D){
   $("tbl").querySelectorAll("th").forEach(th=>th.onclick=()=>{const k=th.dataset.k;sortDir=sortKey===k?-sortDir:1;sortKey=k;renderTable(filtered())});
 }
 ["from","to","status"].forEach(i=>$(i).addEventListener("change",render));
-$("kday").addEventListener("change",renderScore);
 $("q").addEventListener("input",()=>renderTable(filtered()));
 $("reload").onclick=load;
 load();

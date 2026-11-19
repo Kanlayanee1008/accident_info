@@ -11,10 +11,10 @@
 <style>
 :root{
   --bg:#f3f5f7; --card:#fff; --ink:#14232e; --mute:#5f7280; --line:#dde3e8;
-  --a:#0e6b73; --b:#e0a43a; --c:#c8513a; --d:#6b7fa8;
+  --a:#0e6b73; --b:#e0a43a; --c:#c8513a; --d:#6b7fa8; --ok:#1D9E75; --okbg:#e1f5ee; --okink:#085041; --wbg:#fae9c0; --wink:#633806;
 }
 @media (prefers-color-scheme:dark){
-  :root{--bg:#0f1a21; --card:#17252e; --ink:#e8eef2; --mute:#93a5b2; --line:#2a3b46; --a:#3bb3bd; --b:#e8b753; --c:#e07a63; --d:#8da0c8;}
+  :root{--bg:#0f1a21; --card:#17252e; --ink:#e8eef2; --mute:#93a5b2; --line:#2a3b46; --a:#3bb3bd; --b:#e8b753; --c:#e07a63; --d:#8da0c8; --okbg:#0f3a2e; --okink:#9fe1cb; --wbg:#4a3512; --wink:#fac775;}
 }
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);font-family:"IBM Plex Sans Thai",system-ui,sans-serif;line-height:1.5}
@@ -27,11 +27,18 @@ input,select,button{font:inherit;font-size:.9rem;padding:6px 10px;border:1px sol
 button{cursor:pointer;background:var(--a);color:#fff;border-color:var(--a)}
 button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--b);outline-offset:2px}
 main{padding:12px clamp(16px,4vw,40px) 40px;display:grid;gap:14px}
-.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:14px}
-.kpi{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px;border-left:5px solid var(--a)}
-.kpi:nth-child(2){border-left-color:var(--b)}.kpi:nth-child(3){border-left-color:var(--d)}.kpi:nth-child(4){border-left-color:var(--c)}.kpi:nth-child(5){border-left-color:var(--b)}
-.kpi .v{font-size:1.9rem;font-weight:700;line-height:1.2}
-.kpi .l{color:var(--mute);font-size:.82rem}
+.score{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:20px 24px;display:flex;flex-wrap:wrap;gap:28px;align-items:center}
+.ringbox{position:relative;width:140px;height:140px;flex:none}
+.ringbox svg{display:block}
+.ringval{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
+.ringval b{font-size:1.9rem;font-weight:600;line-height:1.1}
+.ringval b small{font-size:.9rem;font-weight:400;color:var(--mute)}
+.ringval span{font-size:.75rem;color:var(--mute)}
+.badge{display:inline-block;padding:4px 14px;border-radius:8px;font-weight:600;font-size:.9rem}
+.badge.ok{background:var(--okbg);color:var(--okink)}
+.badge.warn{background:var(--wbg);color:var(--wink)}
+.score p{margin:8px 0 0;color:var(--mute);font-size:.95rem}
+.trend.up{color:var(--ok)}.trend.down{color:var(--c)}
 .grid{display:grid;grid-template-columns:repeat(12,1fr);gap:14px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px;min-width:0}
 .card h2{margin:0 0 10px;font-size:1rem;font-weight:600}
@@ -62,12 +69,19 @@ td.n{text-align:right;font-variant-numeric:tabular-nums}
 </header>
 <div id="msg" hidden></div>
 <main>
-  <section class="kpis">
-    <div class="kpi"><div class="v" id="k1">–</div><div class="l">จำนวนงาน</div></div>
-    <div class="kpi"><div class="v" id="k2">–</div><div class="l">ค่าใช้จ่ายสำรวจภัยรวม (บาท)</div></div>
-    <div class="kpi"><div class="v" id="k3">–</div><div class="l">เฉลี่ยต่องาน (บาท)</div></div>
-    <div class="kpi"><div class="v" id="k4">–</div><div class="l">งานที่ยังไม่ส่ง</div></div>
-    <div class="kpi"><div class="v" id="k5">–</div><div class="l">เฉลี่ยรับแจ้งถึงส่งงาน (ชม.)</div></div>
+  <section class="score">
+    <div class="ringbox">
+      <svg width="140" height="140" viewBox="0 0 140 140" role="img" aria-label="คะแนนรวม">
+        <circle cx="70" cy="70" r="60" fill="none" stroke="var(--line)" stroke-width="13"/>
+        <circle id="arc" cx="70" cy="70" r="60" fill="none" stroke="var(--ok)" stroke-width="13" stroke-linecap="round" transform="rotate(-90 70 70)" stroke-dasharray="376.99" stroke-dashoffset="376.99"/>
+      </svg>
+      <div class="ringval"><b id="scoreV">–</b><span>คะแนนรวม</span></div>
+    </div>
+    <div>
+      <span class="badge ok" id="badge">–</span>
+      <p id="scoreSub"></p>
+      <p id="trend"></p>
+    </div>
   </section>
   <section class="grid">
     <div class="card s8"><h2>จำนวนงานและค่าใช้จ่ายรายวัน (ตามวันที่รับแจ้ง)</h2><div class="chart"><canvas id="cDaily"></canvas></div></div>
@@ -86,7 +100,12 @@ td.n{text-align:right;font-variant-numeric:tabular-nums}
 const SHEET_ID  = "17Uh0ptdcQltDLTbb4y0vFZC5mmbflSxpSUGmrfnwfio";
 const SHEET_TAB = "history_all";
 const CSV_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(SHEET_TAB)}`;
-const DONE = ["ส่งงานแล้ว"]; // สถานะที่ถือว่าเสร็จ นอกนั้นนับเป็น "ยังไม่ส่ง"
+const DONE = ["ส่งงานแล้ว"];
+
+/* ===== เกณฑ์ KPI (แก้ให้ตรงกฎจริงของบริษัท) ===== */
+const TARGET = 98;      // เป้าหมาย % ต่อ KPI
+const SLA_H  = 24;      // ส่งงานภายในกี่ชั่วโมงหลังรับแจ้ง
+const FEE_MAX = 600;    // เพดานค่าสำรวจ (บาท)
 
 /* ===== ตัวช่วย ===== */
 const $ = id => document.getElementById(id);
@@ -106,7 +125,6 @@ function parseCSV(t){
   if(f||r.length){r.push(f);rows.push(r)}
   return rows;
 }
-/* แปลงเป็น yyyy-mm-dd รองรับ ค.ศ./พ.ศ. ปีนอก 2020-2035 = ไม่ใช้ */
 function toISO(s){
   s=(s||"").trim();
   let y,mo,d,m;
@@ -116,6 +134,11 @@ function toISO(s){
   return (y>=2020&&y<=2035)?`${y}-${mo}-${d}`:"";
 }
 function showMsg(t){ $("msg").hidden=!t; $("msg").textContent=t||""; }
+const dmy = iso => iso.slice(8,10)+"/"+iso.slice(5,7)+"/"+iso.slice(0,4);
+function prevDay(iso){
+  const d=new Date(iso+"T12:00:00Z"); d.setUTCDate(d.getUTCDate()-1);
+  return d.toISOString().slice(0,10);
+}
 
 async function load(){
   $("updated").textContent="กำลังโหลดข้อมูล…"; showMsg("");
@@ -154,84 +177,4 @@ async function load(){
     ALL=[...map.values()];
     if(!ALL.length) throw new Error("อ่านชีทได้แต่ไม่มีแถวข้อมูล");
     const latest=ALL.map(x=>x.pulled).sort().pop();
-    $("updated").textContent="ข้อมูลล่าสุดจากชีท: "+(latest||"-")+" • "+ALL.length+" รายการ";
-    const keepStatus=$("status").value;
-    const sts=[...new Set(ALL.map(x=>x.status))].filter(Boolean);
-    $("status").innerHTML='<option value="">ทั้งหมด</option>'+sts.map(s=>`<option>${s}</option>`).join("");
-    $("status").value=sts.includes(keepStatus)?keepStatus:"";
-    const dates=ALL.map(x=>x.iso).filter(Boolean).sort();
-    if(!$("from").value) $("from").value=dates[0]||"";
-    if(!$("to").value) $("to").value=dates[dates.length-1]||"";
-    render();
-  }catch(e){
-    showMsg("โหลดข้อมูลไม่ได้: "+e.message);
-    $("updated").textContent="";
-  }
-}
-function filtered(){
-  const f=$("from").value,t=$("to").value,s=$("status").value,q=$("q").value.trim().toLowerCase();
-  return ALL.filter(x=>(!f||(x.iso&&x.iso>=f))&&(!t||(x.iso&&x.iso<=t))&&(!s||x.status===s)&&(!q||x.id.toLowerCase().includes(q)));
-}
-function draw(key,cfg){
-  if(charts[key]) charts[key].destroy();
-  charts[key]=new Chart($(key),cfg);
-}
-function render(){
-  const D=filtered();
-  const total=D.reduce((a,x)=>a+x.fee,0);
-  const H=D.map(x=>x.hrs).filter(v=>Number.isFinite(v)&&v>=0);
-  $("k1").textContent=fmt(D.length);
-  $("k2").textContent=fmt(total);
-  $("k3").textContent=D.length?fmt(total/D.length):"–";
-  $("k4").textContent=fmt(D.filter(x=>!DONE.includes(x.status)).length);
-  $("k5").textContent=H.length?(H.reduce((a,b)=>a+b,0)/H.length).toFixed(1):"–";
-
-  const css=getComputedStyle(document.documentElement);
-  const col=n=>css.getPropertyValue(n).trim();
-  Chart.defaults.font.family='"IBM Plex Sans Thai",sans-serif';
-  Chart.defaults.color=col("--mute");
-  const grid={color:col("--line")};
-
-  const byDay={};D.forEach(x=>{if(!x.iso)return;(byDay[x.iso]??={n:0,fee:0});byDay[x.iso].n++;byDay[x.iso].fee+=x.fee;});
-  const days=Object.keys(byDay).sort();
-  draw("cDaily",{data:{labels:days.map(d=>d.slice(5)),datasets:[
-    {type:"bar",label:"จำนวนงาน",data:days.map(d=>byDay[d].n),backgroundColor:col("--a"),yAxisID:"y",borderRadius:3},
-    {type:"line",label:"ค่าสำรวจ (บาท)",data:days.map(d=>byDay[d].fee),borderColor:col("--b"),backgroundColor:col("--b"),yAxisID:"y1",tension:.25,pointRadius:1}]},
-    options:{maintainAspectRatio:false,scales:{x:{grid:{display:false}},y:{grid,title:{display:true,text:"งาน"},beginAtZero:true,ticks:{precision:0}},y1:{position:"right",grid:{display:false},beginAtZero:true,title:{display:true,text:"บาท"}}}}});
-
-  const bySt={};D.forEach(x=>bySt[x.status]=(bySt[x.status]||0)+1);
-  draw("cStatus",{type:"doughnut",data:{labels:Object.keys(bySt),datasets:[{data:Object.values(bySt),backgroundColor:[col("--a"),col("--b"),col("--c"),col("--d"),"#8aa"],borderWidth:0}]},
-    options:{maintainAspectRatio:false,plugins:{legend:{position:"bottom"}}}});
-
-  const hrs=Array(24).fill(0);D.forEach(x=>{if(x.hour>=0&&x.hour<24)hrs[x.hour]++});
-  draw("cHour",{type:"bar",data:{labels:hrs.map((_,i)=>String(i).padStart(2,"0")),datasets:[{label:"จำนวนงาน",data:hrs,backgroundColor:col("--d"),borderRadius:3}]},
-    options:{maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{grid:{display:false}},y:{grid,beginAtZero:true,ticks:{precision:0}}}}});
-
-  const byFee={};D.forEach(x=>byFee[x.fee]=(byFee[x.fee]||0)+1);
-  const fees=Object.keys(byFee).map(Number).sort((a,b)=>a-b);
-  draw("cFee",{type:"bar",data:{labels:fees.map(f=>f+" บาท"),datasets:[{label:"จำนวนงาน",data:fees.map(f=>byFee[f]),backgroundColor:col("--c"),borderRadius:3}]},
-    options:{maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{grid:{display:false}},y:{grid,beginAtZero:true,ticks:{precision:0}}}}});
-
-  renderTable(D);
-}
-const COLS=[["status","สถานะ"],["id","เลขที่รับแจ้ง"],["d","วันที่บันทึกรับแจ้ง"],["time","เวลารับแจ้ง"],["fee","ค่าสำรวจ"],["hrs","ชม.ถึงส่งงาน"],["iso","วันที่ (ค.ศ.)"]];
-function cell(x,k){
-  if(k==="fee") return fmt(x.fee);
-  if(k==="hrs") return Number.isFinite(x.hrs)?x.hrs.toFixed(1):"";
-  return x[k]??"";
-}
-function renderTable(D){
-  $("tbl").querySelector("thead").innerHTML="<tr>"+COLS.map(c=>`<th data-k="${c[0]}">${c[1]}${sortKey===c[0]?(sortDir>0?" ▲":" ▼"):""}</th>`).join("")+"</tr>";
-  const val=(x,k)=>k==="hrs"?(Number.isFinite(x.hrs)?x.hrs:-1):x[k];
-  const S=[...D].sort((a,b)=>(val(a,sortKey)>val(b,sortKey)?1:val(a,sortKey)<val(b,sortKey)?-1:0)*sortDir);
-  $("tbl").querySelector("tbody").innerHTML=S.map(x=>"<tr>"+COLS.map(c=>`<td class="${(c[0]==="fee"||c[0]==="hrs")?"n":""}">${cell(x,c[0])}</td>`).join("")+"</tr>").join("");
-  $("tbl").querySelectorAll("th").forEach(th=>th.onclick=()=>{const k=th.dataset.k;sortDir=sortKey===k?-sortDir:1;sortKey=k;renderTable(filtered())});
-}
-["from","to","status"].forEach(i=>$(i).addEventListener("change",render));
-$("q").addEventListener("input",()=>renderTable(filtered()));
-$("reload").onclick=load;
-load();
-setInterval(load,5*60*1000);
-</script>
-</body>
-</html>
+    $("updated").textContent="ข้อมูลล่าสุดจากชีท: "+(latest||"-")+" •

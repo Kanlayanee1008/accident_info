@@ -93,8 +93,8 @@ td.n{text-align:right;font-variant-numeric:tabular-nums}
     <div class="kpi"><div class="v" id="k1">–</div><div class="l">จำนวนงาน</div></div>
     <div class="kpi"><div class="v" id="k2">–</div><div class="l">ค่าใช้จ่ายสำรวจภัยรวม (บาท)</div></div>
     <div class="kpi"><div class="v" id="k3">–</div><div class="l">เฉลี่ยต่องาน (บาท)</div></div>
-    <div class="kpi"><div class="v" id="k4">–</div><div class="l">งานที่ยังไม่ส่ง</div></div>
-    <div class="kpi"><div class="v" id="k5">–</div><div class="l">เฉลี่ยรับแจ้งถึงส่งงาน (ชม.)</div></div>
+    <div class="kpi"><div class="v" id="k4">–</div><div class="l">งานที่ยังไม่ส่ง (ไม่รวมยกเลิก)</div></div>
+    <div class="kpi"><div class="v" id="k5">–</div><div class="l">ยกเลิกเปิดเคลม</div></div>
   </section>
 
   <section class="grid">
@@ -114,7 +114,8 @@ td.n{text-align:right;font-variant-numeric:tabular-nums}
 const SHEET_ID  = "17Uh0ptdcQltDLTbb4y0vFZC5mmbflSxpSUGmrfnwfio";
 const SHEET_TAB = "history_all";
 const CSV_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(SHEET_TAB)}`;
-const DONE = ["ส่งงานแล้ว"];     // ใช้กับการ์ด "งานที่ยังไม่ส่ง" เท่านั้น
+const DONE = ["ส่งงานแล้ว"];
+const isCancel = x => x.status.startsWith("ยกเลิก");
 
 /* ===== KPI: เป้าวิ่งงานต่อวัน (ได้ครบเป้า = 100%) ===== */
 const DAILY_TARGET = 5;
@@ -231,7 +232,7 @@ function scoreOf(byDay){
 }
 function renderScore(){
   const C=376.99, f=$("from").value, t=$("to").value;
-  const inRange=ALL.filter(x=>x.iso&&(!f||x.iso>=f)&&(!t||x.iso<=t));   // ไม่ใช้ตัวกรองสถานะ
+  const inRange=ALL.filter(x=>x.iso&&(!f||x.iso>=f)&&(!t||x.iso<=t));
   const s=scoreOf(countByDay(inRange));
   if(!s){
     $("scoreV").textContent="–"; $("badge").textContent="ไม่มีงานในช่วงที่เลือก"; $("badge").className="badge warn";
@@ -249,7 +250,6 @@ function renderScore(){
   }
   $("scoreSub").textContent=`เป้าหมาย ${DAILY_TARGET} งานต่อวัน = 100% • ${s.total} งาน • ${s.days} วัน • เฉลี่ย ${s.avg.toFixed(1)} งานต่อวัน`;
 
-  /* เทียบกับช่วงก่อนหน้าที่มีจำนวนวันเท่ากัน */
   let tr="";
   if(f){
     const prev=countByDay(ALL.filter(x=>x.iso&&x.iso<f));
@@ -272,12 +272,11 @@ function render(){
   renderScore();
 
   const total=D.reduce((a,x)=>a+x.fee,0);
-  const H=D.map(x=>x.hrs).filter(v=>Number.isFinite(v)&&v>=0);
   $("k1").textContent=fmt(D.length);
   $("k2").textContent=fmt(total);
   $("k3").textContent=D.length?fmt(total/D.length):"–";
-  $("k4").textContent=fmt(D.filter(x=>!DONE.includes(x.status)).length);
-  $("k5").textContent=H.length?(H.reduce((a,b)=>a+b,0)/H.length).toFixed(1):"–";
+  $("k4").textContent=fmt(D.filter(x=>!DONE.includes(x.status)&&!isCancel(x)).length);
+  $("k5").textContent=fmt(D.filter(isCancel).length);
 
   const css=getComputedStyle(document.documentElement);
   const col=n=>css.getPropertyValue(n).trim();

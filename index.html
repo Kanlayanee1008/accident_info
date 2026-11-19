@@ -29,7 +29,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid 
 main{padding:12px clamp(16px,4vw,40px) 40px;display:grid;gap:14px}
 .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:14px}
 .kpi{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px;border-left:5px solid var(--a)}
-.kpi:nth-child(2){border-left-color:var(--b)}.kpi:nth-child(3){border-left-color:var(--d)}.kpi:nth-child(4){border-left-color:var(--c)}
+.kpi:nth-child(2){border-left-color:var(--b)}.kpi:nth-child(3){border-left-color:var(--d)}.kpi:nth-child(4){border-left-color:var(--c)}.kpi:nth-child(5){border-left-color:var(--b)}
 .kpi .v{font-size:1.9rem;font-weight:700;line-height:1.2}
 .kpi .l{color:var(--mute);font-size:.82rem}
 .grid{display:grid;grid-template-columns:repeat(12,1fr);gap:14px}
@@ -51,9 +51,10 @@ td.n{text-align:right;font-variant-numeric:tabular-nums}
   <div>
     <h1>แดชบอร์ดงานอุบัติเหตุ</h1>
     <div class="sub" id="updated">กำลังโหลดข้อมูล…</div>
+    <div class="sub">นับตามวันที่บันทึกรายการรับแจ้ง</div>
   </div>
   <div class="controls">
-    <label>ตั้งแต่ <input type="date" id="from"></label>
+    <label>วันที่รับแจ้งตั้งแต่ <input type="date" id="from"></label>
     <label>ถึง <input type="date" id="to"></label>
     <label>สถานะ <select id="status"><option value="">ทั้งหมด</option></select></label>
     <button id="reload">โหลดใหม่</button>
@@ -66,14 +67,15 @@ td.n{text-align:right;font-variant-numeric:tabular-nums}
     <div class="kpi"><div class="v" id="k2">–</div><div class="l">ค่าใช้จ่ายสำรวจภัยรวม (บาท)</div></div>
     <div class="kpi"><div class="v" id="k3">–</div><div class="l">เฉลี่ยต่องาน (บาท)</div></div>
     <div class="kpi"><div class="v" id="k4">–</div><div class="l">งานที่ยังไม่ส่ง</div></div>
+    <div class="kpi"><div class="v" id="k5">–</div><div class="l">เฉลี่ยรับแจ้งถึงส่งงาน (ชม.)</div></div>
   </section>
   <section class="grid">
-    <div class="card s8"><h2>จำนวนงานและค่าใช้จ่ายรายวัน</h2><div class="chart"><canvas id="cDaily"></canvas></div></div>
+    <div class="card s8"><h2>จำนวนงานและค่าใช้จ่ายรายวัน (ตามวันที่รับแจ้ง)</h2><div class="chart"><canvas id="cDaily"></canvas></div></div>
     <div class="card s4"><h2>สัดส่วนตามสถานะ</h2><div class="chart"><canvas id="cStatus"></canvas></div></div>
-    <div class="card s6"><h2>ช่วงเวลาที่เกิดเหตุ (ชั่วโมง)</h2><div class="chart"><canvas id="cHour"></canvas></div></div>
+    <div class="card s6"><h2>ช่วงเวลาที่รับแจ้ง (ชั่วโมง)</h2><div class="chart"><canvas id="cHour"></canvas></div></div>
     <div class="card s6"><h2>จำนวนงานตามอัตราค่าสำรวจ</h2><div class="chart"><canvas id="cFee"></canvas></div></div>
     <div class="card s12">
-      <h2>รายการทั้งหมด <input id="q" placeholder="ค้นหาเลขรับแจ้ง / กรมธรรม์" style="margin-left:10px;min-width:230px"></h2>
+      <h2>รายการทั้งหมด <input id="q" placeholder="ค้นหาเลขรับแจ้ง" style="margin-left:10px;min-width:230px"></h2>
       <div class="tablewrap"><table id="tbl"><thead></thead><tbody></tbody></table></div>
     </div>
   </section>
@@ -82,9 +84,9 @@ td.n{text-align:right;font-variant-numeric:tabular-nums}
 <script>
 /* ===== ตั้งค่า ===== */
 const SHEET_ID  = "17Uh0ptdcQltDLTbb4y0vFZC5mmbflSxpSUGmrfnwfio";
-const SHEET_TAB = "history";
+const SHEET_TAB = "history_all";
 const CSV_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(SHEET_TAB)}`;
-const UNSENT = ["ส่งงานแล้ว"]; // สถานะที่ถือว่าเสร็จ นอกนั้นนับเป็น "ยังไม่ส่ง"
+const DONE = ["ส่งงานแล้ว"]; // สถานะที่ถือว่าเสร็จ นอกนั้นนับเป็น "ยังไม่ส่ง"
 
 /* ===== ตัวช่วย ===== */
 const $ = id => document.getElementById(id);
@@ -104,10 +106,9 @@ function parseCSV(t){
   if(f||r.length){r.push(f);rows.push(r)}
   return rows;
 }
-function toISO(row){
-  // ใช้คอลัมน์ "วันที่ ค.ศ." ก่อน ถ้าไม่มีแปลงจาก dd/mm/พ.ศ.
-  if(/^\d{4}-\d{2}-\d{2}/.test(row.g||"")) return row.g.slice(0,10);
-  const m=(row.d||"").match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+function toISO(s){
+  if(/^\d{4}-\d{2}-\d{2}/.test(s||"")) return s.slice(0,10);
+  const m=(s||"").match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
   if(!m) return "";
   const y=+m[3]>2400?+m[3]-543:+m[3];
   return `${y}-${m[2].padStart(2,"0")}-${m[1].padStart(2,"0")}`;
@@ -118,32 +119,50 @@ async function load(){
     const res=await fetch(CSV_URL,{cache:"no-store"});
     if(!res.ok) throw new Error("HTTP "+res.status);
     const rows=parseCSV(await res.text());
-    rows.shift(); // header
+    const header=rows.shift().map(h=>h.trim());
+    const ix=n=>header.indexOf(n);
+    const I={
+      status:ix("สถานะ"), id:ix("เลขที่รับแจ้ง"),
+      accD:ix("วันที่เกิดเหตุ"), accISO:ix("วันที่ ค.ศ."),
+      nD:ix("วันที่บันทึกรับแจ้ง"), nT:ix("เวลาบันทึกรับแจ้ง"), nISO:ix("วันที่บันทึก ค.ศ."),
+      fee:ix("ค่าใช้จ่ายสำรวจภัย"), hrs:ix("ชม.จากรับแจ้งถึงส่งงาน"), pulled:ix("ดึงข้อมูลเมื่อ")
+    };
     const map=new Map();
     rows.forEach(c=>{
-      const o={status:(c[0]||"").trim(),id:(c[1]||"").trim(),policy:(c[2]||"").trim(),d:c[3]||"",time:(c[4]||"").trim(),fee:parseFloat((c[5]||"").replace(/,/g,""))||0,g:(c[6]||"").trim(),pulled:(c[7]||"").trim()};
+      const g=v=>v>=0?(c[v]||"").trim():"";
+      const o={
+        status:g(I.status), id:g(I.id),
+        d:g(I.nD)||g(I.accD),            // วันที่บันทึกรับแจ้ง (ถ้าว่างใช้วันที่เกิดเหตุ)
+        time:g(I.nT),
+        fee:parseFloat(g(I.fee).replace(/,/g,""))||0,
+        hrs:parseFloat(g(I.hrs)),
+        pulled:g(I.pulled)
+      };
       if(!o.id) return;
-      o.iso=toISO(o); o.hour=parseInt((o.time.split(":")[0]),10);
-      map.set(o.id,o); // เลขรับแจ้งซ้ำ → ใช้แถวล่าสุด
+      o.iso=toISO(g(I.nISO)||g(I.accISO)||o.d);
+      o.hour=parseInt(o.time.split(":")[0],10);
+      map.set(o.id,o);
     });
     ALL=[...map.values()];
     const latest=ALL.map(x=>x.pulled).sort().pop();
     $("updated").textContent="ข้อมูลล่าสุดจากชีท: "+(latest||"-");
-    const sts=[...new Set(ALL.map(x=>x.status))];
+    const keepStatus=$("status").value;
+    const sts=[...new Set(ALL.map(x=>x.status))].filter(Boolean);
     $("status").innerHTML='<option value="">ทั้งหมด</option>'+sts.map(s=>`<option>${s}</option>`).join("");
+    $("status").value=sts.includes(keepStatus)?keepStatus:"";
     const dates=ALL.map(x=>x.iso).filter(Boolean).sort();
     if(!$("from").value) $("from").value=dates[0]||"";
     if(!$("to").value) $("to").value=dates[dates.length-1]||"";
     render();
   }catch(e){
     $("msg").hidden=false;
-    $("msg").textContent="โหลดข้อมูลไม่ได้ ("+e.message+") — ตรวจว่าแชร์ชีทเป็น “ทุกคนที่มีลิงก์ดูได้” และชื่อแท็บคือ "+SHEET_TAB;
+    $("msg").textContent="โหลดข้อมูลไม่ได้ ("+e.message+") — ตรวจว่าแชร์ชีทให้เปิดอ่านได้ และชื่อแท็บคือ "+SHEET_TAB;
     $("updated").textContent="";
   }
 }
 function filtered(){
   const f=$("from").value,t=$("to").value,s=$("status").value,q=$("q").value.trim().toLowerCase();
-  return ALL.filter(x=>(!f||x.iso>=f)&&(!t||x.iso<=t)&&(!s||x.status===s)&&(!q||(x.id+x.policy).toLowerCase().includes(q)));
+  return ALL.filter(x=>(!f||x.iso>=f)&&(!t||x.iso<=t)&&(!s||x.status===s)&&(!q||x.id.toLowerCase().includes(q)));
 }
 function draw(key,cfg){
   if(charts[key]) charts[key].destroy();
@@ -152,10 +171,12 @@ function draw(key,cfg){
 function render(){
   const D=filtered();
   const total=D.reduce((a,x)=>a+x.fee,0);
+  const H=D.map(x=>x.hrs).filter(v=>Number.isFinite(v)&&v>=0);
   $("k1").textContent=fmt(D.length);
   $("k2").textContent=fmt(total);
   $("k3").textContent=D.length?fmt(total/D.length):"–";
-  $("k4").textContent=fmt(D.filter(x=>!UNSENT.includes(x.status)).length);
+  $("k4").textContent=fmt(D.filter(x=>!DONE.includes(x.status)).length);
+  $("k5").textContent=H.length?(H.reduce((a,b)=>a+b,0)/H.length).toFixed(1):"–";
 
   const css=getComputedStyle(document.documentElement);
   const col=n=>css.getPropertyValue(n).trim();
@@ -163,25 +184,21 @@ function render(){
   Chart.defaults.color=col("--mute");
   const grid={color:col("--line")};
 
-  // รายวัน
-  const byDay={};D.forEach(x=>{(byDay[x.iso]??={n:0,fee:0}); byDay[x.iso].n++; byDay[x.iso].fee+=x.fee;});
+  const byDay={};D.forEach(x=>{if(!x.iso)return;(byDay[x.iso]??={n:0,fee:0});byDay[x.iso].n++;byDay[x.iso].fee+=x.fee;});
   const days=Object.keys(byDay).sort();
   draw("cDaily",{data:{labels:days.map(d=>d.slice(5)),datasets:[
     {type:"bar",label:"จำนวนงาน",data:days.map(d=>byDay[d].n),backgroundColor:col("--a"),yAxisID:"y",borderRadius:3},
-    {type:"line",label:"ค่าสำรวจ (บาท)",data:days.map(d=>byDay[d].fee),borderColor:col("--b"),backgroundColor:col("--b"),yAxisID:"y1",tension:.25}]},
+    {type:"line",label:"ค่าสำรวจ (บาท)",data:days.map(d=>byDay[d].fee),borderColor:col("--b"),backgroundColor:col("--b"),yAxisID:"y1",tension:.25,pointRadius:1}]},
     options:{maintainAspectRatio:false,scales:{x:{grid:{display:false}},y:{grid,title:{display:true,text:"งาน"},beginAtZero:true,ticks:{precision:0}},y1:{position:"right",grid:{display:false},beginAtZero:true,title:{display:true,text:"บาท"}}}}});
 
-  // สถานะ
   const bySt={};D.forEach(x=>bySt[x.status]=(bySt[x.status]||0)+1);
   draw("cStatus",{type:"doughnut",data:{labels:Object.keys(bySt),datasets:[{data:Object.values(bySt),backgroundColor:[col("--a"),col("--b"),col("--c"),col("--d"),"#8aa"],borderWidth:0}]},
     options:{maintainAspectRatio:false,plugins:{legend:{position:"bottom"}}}});
 
-  // ชั่วโมง
   const hrs=Array(24).fill(0);D.forEach(x=>{if(x.hour>=0&&x.hour<24)hrs[x.hour]++});
   draw("cHour",{type:"bar",data:{labels:hrs.map((_,i)=>String(i).padStart(2,"0")),datasets:[{label:"จำนวนงาน",data:hrs,backgroundColor:col("--d"),borderRadius:3}]},
     options:{maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{grid:{display:false}},y:{grid,beginAtZero:true,ticks:{precision:0}}}}});
 
-  // อัตราค่าสำรวจ
   const byFee={};D.forEach(x=>byFee[x.fee]=(byFee[x.fee]||0)+1);
   const fees=Object.keys(byFee).map(Number).sort((a,b)=>a-b);
   draw("cFee",{type:"bar",data:{labels:fees.map(f=>f+" บาท"),datasets:[{label:"จำนวนงาน",data:fees.map(f=>byFee[f]),backgroundColor:col("--c"),borderRadius:3}]},
@@ -189,18 +206,24 @@ function render(){
 
   renderTable(D);
 }
-const COLS=[["status","สถานะ"],["id","เลขที่รับแจ้ง"],["policy","เลขที่กรมธรรม์"],["d","วันที่เกิดเหตุ"],["time","เวลา"],["fee","ค่าสำรวจ"],["iso","วันที่ (ค.ศ.)"]];
+const COLS=[["status","สถานะ"],["id","เลขที่รับแจ้ง"],["d","วันที่บันทึกรับแจ้ง"],["time","เวลารับแจ้ง"],["fee","ค่าสำรวจ"],["hrs","ชม.ถึงส่งงาน"],["iso","วันที่ (ค.ศ.)"]];
+function cell(x,k){
+  if(k==="fee") return fmt(x.fee);
+  if(k==="hrs") return Number.isFinite(x.hrs)?x.hrs.toFixed(1):"";
+  return x[k]??"";
+}
 function renderTable(D){
   $("tbl").querySelector("thead").innerHTML="<tr>"+COLS.map(c=>`<th data-k="${c[0]}">${c[1]}${sortKey===c[0]?(sortDir>0?" ▲":" ▼"):""}</th>`).join("")+"</tr>";
-  const S=[...D].sort((a,b)=>(a[sortKey]>b[sortKey]?1:a[sortKey]<b[sortKey]?-1:0)*sortDir);
-  $("tbl").querySelector("tbody").innerHTML=S.map(x=>"<tr>"+COLS.map(c=>`<td class="${c[0]==="fee"?"n":""}">${c[0]==="fee"?fmt(x.fee):x[c[0]]}</td>`).join("")+"</tr>").join("");
+  const val=(x,k)=>k==="hrs"?(Number.isFinite(x.hrs)?x.hrs:-1):x[k];
+  const S=[...D].sort((a,b)=>(val(a,sortKey)>val(b,sortKey)?1:val(a,sortKey)<val(b,sortKey)?-1:0)*sortDir);
+  $("tbl").querySelector("tbody").innerHTML=S.map(x=>"<tr>"+COLS.map(c=>`<td class="${(c[0]==="fee"||c[0]==="hrs")?"n":""}">${cell(x,c[0])}</td>`).join("")+"</tr>").join("");
   $("tbl").querySelectorAll("th").forEach(th=>th.onclick=()=>{const k=th.dataset.k;sortDir=sortKey===k?-sortDir:1;sortKey=k;renderTable(filtered())});
 }
 ["from","to","status"].forEach(i=>$(i).addEventListener("change",render));
 $("q").addEventListener("input",()=>renderTable(filtered()));
 $("reload").onclick=load;
 load();
-setInterval(load,5*60*1000); // รีเฟรชทุก 5 นาที
+setInterval(load,5*60*1000);
 </script>
 </body>
 </html>

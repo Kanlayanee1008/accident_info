@@ -39,6 +39,11 @@ main{padding:12px clamp(16px,4vw,40px) 40px;display:grid;gap:14px}
 .badge.warn{background:var(--wbg);color:var(--wink)}
 .score p{margin:8px 0 0;color:var(--mute);font-size:.95rem}
 .trend.up{color:var(--ok)}.trend.down{color:var(--c)}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:14px}
+.kpi{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px;border-left:5px solid var(--a)}
+.kpi:nth-child(2){border-left-color:var(--b)}.kpi:nth-child(3){border-left-color:var(--d)}.kpi:nth-child(4){border-left-color:var(--c)}.kpi:nth-child(5){border-left-color:var(--b)}
+.kpi .v{font-size:1.9rem;font-weight:700;line-height:1.2}
+.kpi .l{color:var(--mute);font-size:.82rem}
 .grid{display:grid;grid-template-columns:repeat(12,1fr);gap:14px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px;min-width:0}
 .card h2{margin:0 0 10px;font-size:1rem;font-weight:600}
@@ -84,6 +89,15 @@ td.n{text-align:right;font-variant-numeric:tabular-nums}
       <p id="trend"></p>
     </div>
   </section>
+
+  <section class="kpis">
+    <div class="kpi"><div class="v" id="k1">–</div><div class="l">จำนวนงาน</div></div>
+    <div class="kpi"><div class="v" id="k2">–</div><div class="l">ค่าใช้จ่ายสำรวจภัยรวม (บาท)</div></div>
+    <div class="kpi"><div class="v" id="k3">–</div><div class="l">เฉลี่ยต่องาน (บาท)</div></div>
+    <div class="kpi"><div class="v" id="k4">–</div><div class="l">งานที่ยังไม่ส่ง</div></div>
+    <div class="kpi"><div class="v" id="k5">–</div><div class="l">เฉลี่ยรับแจ้งถึงส่งงาน (ชม.)</div></div>
+  </section>
+
   <section class="grid">
     <div class="card s8"><h2>จำนวนงานและค่าใช้จ่ายรายวัน (ตามวันที่รับแจ้ง)</h2><div class="chart"><canvas id="cDaily"></canvas></div></div>
     <div class="card s4"><h2>สัดส่วนตามสถานะ</h2><div class="chart"><canvas id="cStatus"></canvas></div></div>
@@ -104,9 +118,9 @@ const CSV_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=
 const DONE = ["ส่งงานแล้ว"];
 
 /* ===== เกณฑ์ KPI รายวัน (แก้ให้ตรงกฎจริงของบริษัท) ===== */
-const TARGET  = 98;    // KPI ตัวนั้นผ่านเมื่อ % ของงานในวันนั้นที่ถูกเกณฑ์ >= ค่านี้
-const SLA_H   = 24;    // ส่งงานภายในกี่ชั่วโมงหลังรับแจ้ง
-const FEE_MAX = 600;   // เพดานค่าสำรวจ (บาท)
+const TARGET  = 98;
+const SLA_H   = 24;
+const FEE_MAX = 600;
 
 /* ===== ตัวช่วย ===== */
 const $ = id => document.getElementById(id);
@@ -180,7 +194,7 @@ async function load(){
     $("status").innerHTML='<option value="">ทั้งหมด</option>'+sts.map(s=>`<option>${s}</option>`).join("");
     $("status").value=sts.includes(keepStatus)?keepStatus:"";
     const dates=ALL.map(x=>x.iso).filter(Boolean).sort();
-    if(!inited){               // ตั้งค่าเริ่มต้นครั้งเดียว ไม่ใช้ค่าที่เบราว์เซอร์จำไว้
+    if(!inited){
       $("from").value=dates[0]||"";
       $("to").value=dates[dates.length-1]||"";
       $("kday").value=dates[dates.length-1]||"";
@@ -251,6 +265,15 @@ function renderScore(){
 function render(){
   const D=filtered();
   renderScore();
+
+  /* การ์ดตัวเลขสรุป (ตามช่วงวันที่และสถานะที่เลือก) */
+  const total=D.reduce((a,x)=>a+x.fee,0);
+  const H=D.map(x=>x.hrs).filter(v=>Number.isFinite(v)&&v>=0);
+  $("k1").textContent=fmt(D.length);
+  $("k2").textContent=fmt(total);
+  $("k3").textContent=D.length?fmt(total/D.length):"–";
+  $("k4").textContent=fmt(D.filter(x=>!DONE.includes(x.status)).length);
+  $("k5").textContent=H.length?(H.reduce((a,b)=>a+b,0)/H.length).toFixed(1):"–";
 
   const css=getComputedStyle(document.documentElement);
   const col=n=>css.getPropertyValue(n).trim();

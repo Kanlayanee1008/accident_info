@@ -8,6 +8,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
 <style>
 :root{
   --bg:#f3f5f7; --card:#fff; --ink:#14232e; --mute:#5f7280; --line:#dde3e8;
@@ -62,6 +63,8 @@ th,td{padding:7px 10px;border-bottom:1px solid var(--line);text-align:left;white
 th{position:sticky;top:0;background:var(--card);cursor:pointer}
 td.n{text-align:center;font-variant-numeric:tabular-nums}
 th.n{text-align:center}
+.thead{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:0 0 10px}
+.thead h2{margin:0}
 #msg{margin:0 clamp(16px,4vw,40px);padding:12px 16px;border:1px solid var(--c);border-radius:8px;color:var(--c);background:var(--card)}
 </style>
 </head>
@@ -121,7 +124,11 @@ th.n{text-align:center}
     <div class="card s6"><h2>ช่วงเวลาที่รับแจ้ง (ชั่วโมง)</h2><div class="chart"><canvas id="cHour"></canvas></div></div>
     <div class="card s6"><h2>จำนวนงานตามอัตราค่าสำรวจ</h2><div class="chart"><canvas id="cFee"></canvas></div></div>
     <div class="card s12">
-      <h2>รายการทั้งหมด <input id="q" placeholder="ค้นหาเลขรับแจ้ง" style="margin-left:10px;min-width:230px"></h2>
+      <div class="thead">
+        <h2>รายการทั้งหมด</h2>
+        <input id="q" placeholder="ค้นหาเลขรับแจ้ง" style="min-width:230px">
+        <button id="xl" title="ส่งออกตารางนี้เป็นไฟล์ Excel จัดหน้า A4">ส่งออก Excel (A4)</button>
+      </div>
       <div class="tablewrap"><table id="tbl"><thead></thead><tbody></tbody></table></div>
     </div>
   </section>
@@ -138,10 +145,13 @@ const isCancel = x => x.status.startsWith("ยกเลิก");
 /* ===== KPI: เป้าวิ่งงานต่อวัน (ได้ครบเป้า = 100%) ===== */
 const DAILY_TARGET = 5;
 
+/* ===== ส่งออก Excel: แนวกระดาษ "portrait" (แนวตั้ง) หรือ "landscape" (แนวนอน) ===== */
+const XL_ORIENT = "portrait";
+
 /* ===== ตัวช่วย ===== */
 const $ = id => document.getElementById(id);
 const fmt = n => Math.round(n).toLocaleString("th-TH");
-let ALL = [], charts = {}, sortKey = "iso", sortDir = -1, inited = false;
+let ALL = [], charts = {}, sortKey = "iso", sortDir = -1, inited = false, LAST = [];
 let MODE = "month", CUR = "", ANCHOR = "", RANGE = {from:"", to:""};
 
 const TH_M = ["ม.ค.","ก.พ.","มี.ค.","เม.ย.","พ.ค.","มิ.ย.","ก.ค.","ส.ค.","ก.ย.","ต.ค.","พ.ย.","ธ.ค."];
@@ -409,8 +419,90 @@ function cell(x,k){
 function renderTable(D){
   $("tbl").querySelector("thead").innerHTML="<tr>"+COLS.map(c=>`<th class="${c[0]==="fee"?"n":""}" data-k="${c[0]}">${c[1]}${sortKey===c[0]?(sortDir>0?" ▲":" ▼"):""}</th>`).join("")+"</tr>";
   const S=[...D].sort((a,b)=>(a[sortKey]>b[sortKey]?1:a[sortKey]<b[sortKey]?-1:0)*sortDir);
+  LAST=S;   /* เก็บแถวที่แสดงอยู่ตอนนี้ไว้ใช้ส่งออก Excel */
   $("tbl").querySelector("tbody").innerHTML=S.map(x=>"<tr>"+COLS.map(c=>`<td class="${c[0]==="fee"?"n":""}">${cell(x,c[0])}</td>`).join("")+"</tr>").join("");
   $("tbl").querySelectorAll("th").forEach(th=>th.onclick=()=>{const k=th.dataset.k;sortDir=sortKey===k?-sortDir:1;sortKey=k;renderTable(filtered())});
+}
+
+/* ===== ส่งออก Excel เฉพาะตารางรายการ จัดหน้า A4 ===== */
+async function exportXlsx(){
+  if(typeof ExcelJS==="undefined"){
+    showMsg("โหลดตัวส่งออก Excel ไม่สำเร็จ (ตรวจอินเทอร์เน็ต แล้วกด Ctrl+F5 ลองใหม่)"); return;
+  }
+  const rows=LAST;
+  if(!rows.length){ showMsg("ไม่มีรายการให้ส่งออกในช่วงที่เลือก"); return; }
+  showMsg("");
+
+  const FONT="Tahoma", LAST_COL="G";
+  const periodTxt=MODE==="all"?"ทุกช่วงเวลา":labelOf(MODE,CUR);
+  const st=$("status").value, q=$("q").value.trim();
+  const now=new Date();
+  const nowTxt=String(now.getDate()).padStart(2,"0")+"/"+String(now.getMonth()+1).padStart(2,"0")+"/"+now.getFullYear()+
+    " "+String(now.getHours()).padStart(2,"0")+":"+String(now.getMinutes()).padStart(2,"0");
+
+  const wb=new ExcelJS.Workbook();
+  wb.creator="แดชบอร์ดงานอุบัติเหตุ";
+  const ws=wb.addWorksheet("รายการ",{views:[{state:"frozen",ySplit:3}]});
+  ws.columns=[{width:14},{width:24},{width:19},{width:13},{width:12},{width:26},{width:20}];
+
+  const thin={style:"thin",color:{argb:"FFBFC8CE"}};
+  const border={top:thin,left:thin,bottom:thin,right:thin};
+
+  ws.mergeCells(`A1:${LAST_COL}1`);
+  const t1=ws.getCell("A1");
+  t1.value="รายการงานอุบัติเหตุ";
+  t1.font={name:FONT,size:15,bold:true,color:{argb:"FF0E6B73"}};
+  t1.alignment={horizontal:"center",vertical:"middle"};
+  ws.getRow(1).height=26;
+
+  ws.mergeCells(`A2:${LAST_COL}2`);
+  const t2=ws.getCell("A2");
+  t2.value=`ช่วง: ${periodTxt}  •  สถานะ: ${st||"ทั้งหมด"}${q?"  •  ค้นหา: "+q:""}  •  ${rows.length} รายการ  •  ส่งออก ${nowTxt}`;
+  t2.font={name:FONT,size:9,color:{argb:"FF5F7280"}};
+  t2.alignment={horizontal:"center",vertical:"middle"};
+  ws.getRow(2).height=18;
+
+  const head=ws.getRow(3);
+  head.values=COLS.map(c=>c[1]);
+  head.height=22;
+  head.eachCell(c=>{
+    c.font={name:FONT,size:10,bold:true,color:{argb:"FFFFFFFF"}};
+    c.fill={type:"pattern",pattern:"solid",fgColor:{argb:"FF0E6B73"}};
+    c.alignment={horizontal:"center",vertical:"middle",wrapText:true};
+    c.border=border;
+  });
+
+  rows.forEach((x,i)=>{
+    const r=ws.addRow([x.status,x.id,x.d,x.time,x.fee,x.res,x.claim]);
+    r.height=18;
+    r.eachCell({includeEmpty:true},(c,n)=>{
+      c.font={name:FONT,size:10};
+      c.border=border;
+      c.alignment={vertical:"middle",horizontal:n===5||n===3||n===4?"center":"left"};
+      if(i%2===1) c.fill={type:"pattern",pattern:"solid",fgColor:{argb:"FFF3F5F7"}};
+    });
+    r.getCell(5).numFmt="#,##0";
+  });
+
+  ws.pageSetup={
+    paperSize:9,                       /* 9 = A4 */
+    orientation:XL_ORIENT,
+    fitToPage:true, fitToWidth:1, fitToHeight:0,
+    horizontalCentered:true,
+    margins:{left:0.4,right:0.4,top:0.6,bottom:0.6,header:0.3,footer:0.3},
+    printArea:`A1:${LAST_COL}${3+rows.length}`,
+    printTitlesRow:"3:3"               /* หัวตารางซ้ำทุกหน้า */
+  };
+  ws.headerFooter.oddFooter="&L&D&Rหน้า &P / &N";
+
+  const buf=await wb.xlsx.writeBuffer();
+  const blob=new Blob([buf],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
+  const a=document.createElement("a");
+  const stamp=now.getFullYear()+String(now.getMonth()+1).padStart(2,"0")+String(now.getDate()).padStart(2,"0");
+  a.href=URL.createObjectURL(blob);
+  a.download=`accident_list_${MODE==="all"?"all":CUR}_${stamp}.xlsx`;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(a.href),1500);
 }
 
 /* ===== ปุ่มและตัวควบคุม ===== */
@@ -422,6 +514,7 @@ $("pprev").addEventListener("click",()=>{ const l=periods(), i=l.indexOf(CUR); i
 $("pnext").addEventListener("click",()=>{ const l=periods(), i=l.indexOf(CUR); if(i>0){CUR=l[i-1]; applyPeriod(); render();} });
 $("status").addEventListener("change",render);
 $("q").addEventListener("input",()=>renderTable(filtered()));
+$("xl").addEventListener("click",()=>{ exportXlsx().catch(e=>showMsg("ส่งออก Excel ไม่สำเร็จ: "+e.message)); });
 $("reload").onclick=load;
 load();
 setInterval(load,5*60*1000);

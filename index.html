@@ -63,10 +63,10 @@ td.n{text-align:right;font-variant-numeric:tabular-nums}
   <div>
     <h1>แดชบอร์ดงานอุบัติเหตุ</h1>
     <div class="sub" id="updated">กำลังโหลดข้อมูล…</div>
-    <div class="sub">นับตามวันที่บันทึกรายการรับแจ้ง</div>
+    <div class="sub">นับตามวันที่ Assign งานให้ Surveyor</div>
   </div>
   <div class="controls">
-    <label>วันที่รับแจ้งตั้งแต่ <input type="date" id="from" autocomplete="off"></label>
+    <label>วันที่ Assign ตั้งแต่ <input type="date" id="from" autocomplete="off"></label>
     <label>ถึง <input type="date" id="to" autocomplete="off"></label>
     <label>สถานะ <select id="status"><option value="">ทั้งหมด</option></select></label>
     <button id="reload">โหลดใหม่</button>
@@ -98,7 +98,7 @@ td.n{text-align:right;font-variant-numeric:tabular-nums}
   </section>
 
   <section class="grid">
-    <div class="card s8"><h2>จำนวนงานและค่าใช้จ่ายรายวัน (ตามวันที่รับแจ้ง)</h2><div class="chart"><canvas id="cDaily"></canvas></div></div>
+    <div class="card s8"><h2>จำนวนงานและค่าใช้จ่ายรายวัน (ตามวันที่ Assign)</h2><div class="chart"><canvas id="cDaily"></canvas></div></div>
     <div class="card s4"><h2>สัดส่วนตามสถานะ</h2><div class="chart"><canvas id="cStatus"></canvas></div></div>
     <div class="card s6"><h2>ช่วงเวลาที่รับแจ้ง (ชั่วโมง)</h2><div class="chart"><canvas id="cHour"></canvas></div></div>
     <div class="card s6"><h2>จำนวนงานตามอัตราค่าสำรวจ</h2><div class="chart"><canvas id="cFee"></canvas></div></div>
@@ -164,10 +164,13 @@ async function load(){
       status:ix("สถานะ"), id:ix("เลขที่รับแจ้ง"),
       accD:ix("วันที่เกิดเหตุ"), accISO:ix("วันที่ ค.ศ."),
       nD:ix("วันที่บันทึกรับแจ้ง"), nT:ix("เวลาบันทึกรับแจ้ง"), nISO:ix("วันที่บันทึก ค.ศ."),
-      fee:ix("ค่าใช้จ่ายสำรวจภัย"), hrs:ix("ชม.จากรับแจ้งถึงส่งงาน"), pulled:ix("ดึงข้อมูลเมื่อ")
+      asg:ix("วันที่ Assign งานให้ Surveyor"), asgISO:ix("วันที่ Assign ค.ศ."),
+      fee:ix("ค่าใช้จ่ายสำรวจภัย"), res:ix("ผลฝ่ายถูกผิด"), claim:ix("ประเภทเคลม"),
+      pulled:ix("ดึงข้อมูลเมื่อ")
     };
     if(I.id<0) throw new Error("ไม่พบคอลัมน์ เลขที่รับแจ้ง ในแท็บ "+SHEET_TAB+" (หัวคอลัมน์ที่พบ: "+header.slice(0,6).join(", ")+")");
     const map=new Map();
+    let noAssign=0;
     rows.forEach(c=>{
       const g=v=>v>=0?(c[v]||"").trim():"";
       const o={
@@ -175,18 +178,22 @@ async function load(){
         d:g(I.nD)||g(I.accD),
         time:g(I.nT),
         fee:parseFloat(g(I.fee).replace(/,/g,""))||0,
-        hrs:parseFloat(g(I.hrs)),
+        res:g(I.res), claim:g(I.claim),
         pulled:g(I.pulled)
       };
       if(!o.id) return;
-      o.iso=toISO(g(I.nISO))||toISO(g(I.nD))||toISO(g(I.accISO))||toISO(g(I.accD));
+      /* นับตามวันที่ Assign ถ้ายังไม่มีใช้วันที่รับแจ้ง/เกิดเหตุแทน */
+      const asg=toISO(g(I.asgISO))||toISO(g(I.asg));
+      o.iso=asg||toISO(g(I.nISO))||toISO(g(I.nD))||toISO(g(I.accISO))||toISO(g(I.accD));
+      if(!asg) noAssign++;
       o.hour=parseInt(o.time.split(":")[0],10);
       map.set(o.id,o);
     });
     ALL=[...map.values()];
     if(!ALL.length) throw new Error("อ่านชีทได้แต่ไม่มีแถวข้อมูล");
     const latest=ALL.map(x=>x.pulled).sort().pop();
-    $("updated").textContent="ข้อมูลล่าสุดจากชีท: "+(latest||"-")+" • "+ALL.length+" รายการ";
+    $("updated").textContent="ข้อมูลล่าสุดจากชีท: "+(latest||"-")+" • "+ALL.length+" รายการ"+
+      (noAssign?` • ${noAssign} รายการยังไม่มีวันที่ Assign (ใช้วันที่รับแจ้งแทน)`:"");
     const keepStatus=$("status").value;
     const sts=[...new Set(ALL.map(x=>x.status))].filter(Boolean);
     $("status").innerHTML='<option value="">ทั้งหมด</option>'+sts.map(s=>`<option>${s}</option>`).join("");
@@ -306,17 +313,15 @@ function render(){
 
   renderTable(D);
 }
-const COLS=[["status","สถานะ"],["id","เลขที่รับแจ้ง"],["d","วันที่บันทึกรับแจ้ง"],["time","เวลารับแจ้ง"],["fee","ค่าสำรวจ"],["hrs","ชม.ถึงส่งงาน"],["iso","วันที่ (ค.ศ.)"]];
+const COLS=[["status","สถานะ"],["id","เลขที่รับแจ้ง"],["d","วันที่บันทึกรับแจ้ง"],["time","เวลารับแจ้ง"],["fee","ค่าสำรวจ"],["res","ผลฝ่ายถูกผิด"],["claim","ประเภทเคลม"]];
 function cell(x,k){
   if(k==="fee") return fmt(x.fee);
-  if(k==="hrs") return Number.isFinite(x.hrs)?x.hrs.toFixed(1):"";
   return x[k]??"";
 }
 function renderTable(D){
   $("tbl").querySelector("thead").innerHTML="<tr>"+COLS.map(c=>`<th data-k="${c[0]}">${c[1]}${sortKey===c[0]?(sortDir>0?" ▲":" ▼"):""}</th>`).join("")+"</tr>";
-  const val=(x,k)=>k==="hrs"?(Number.isFinite(x.hrs)?x.hrs:-1):x[k];
-  const S=[...D].sort((a,b)=>(val(a,sortKey)>val(b,sortKey)?1:val(a,sortKey)<val(b,sortKey)?-1:0)*sortDir);
-  $("tbl").querySelector("tbody").innerHTML=S.map(x=>"<tr>"+COLS.map(c=>`<td class="${(c[0]==="fee"||c[0]==="hrs")?"n":""}">${cell(x,c[0])}</td>`).join("")+"</tr>").join("");
+  const S=[...D].sort((a,b)=>(a[sortKey]>b[sortKey]?1:a[sortKey]<b[sortKey]?-1:0)*sortDir);
+  $("tbl").querySelector("tbody").innerHTML=S.map(x=>"<tr>"+COLS.map(c=>`<td class="${c[0]==="fee"?"n":""}">${cell(x,c[0])}</td>`).join("")+"</tr>").join("");
   $("tbl").querySelectorAll("th").forEach(th=>th.onclick=()=>{const k=th.dataset.k;sortDir=sortKey===k?-sortDir:1;sortKey=k;renderTable(filtered())});
 }
 ["from","to","status"].forEach(i=>$(i).addEventListener("change",render));

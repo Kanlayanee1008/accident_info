@@ -26,6 +26,12 @@ h1{margin:0;font-size:1.5rem;font-weight:700}
 input,select,button{font:inherit;font-size:.9rem;padding:6px 10px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--ink)}
 button{cursor:pointer;background:var(--a);color:#fff;border-color:var(--a)}
 button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--b);outline-offset:2px}
+.pbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 16px}
+.pbar button{background:var(--card);color:var(--ink);border:1px solid var(--line);border-radius:10px;padding:6px 14px}
+.pbar button.on{background:#0f9a78;border-color:#0f9a78;color:#fff;font-weight:600}
+.pbar button:disabled{opacity:.4;cursor:default}
+.pbar select{min-width:170px;border-radius:10px}
+.pbar .rng{color:var(--mute);font-size:.85rem;margin-left:auto}
 main{padding:12px clamp(16px,4vw,40px) 40px;display:grid;gap:14px}
 .score{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:20px 24px;display:flex;flex-wrap:wrap;gap:28px;align-items:center}
 .ringbox{position:relative;width:140px;height:140px;flex:none}
@@ -67,14 +73,25 @@ th.n{text-align:center}
     <div class="sub">นับตามวันที่ Assign งานให้ Surveyor</div>
   </div>
   <div class="controls">
-    <label>วันที่ Assign ตั้งแต่ <input type="date" id="from" autocomplete="off"></label>
-    <label>ถึง <input type="date" id="to" autocomplete="off"></label>
     <label>สถานะ <select id="status"><option value="">ทั้งหมด</option></select></label>
     <button id="reload">โหลดใหม่</button>
   </div>
 </header>
 <div id="msg" hidden></div>
 <main>
+  <section class="pbar" id="pbar">
+    <button data-m="all">ดูทั้งหมด</button>
+    <button data-m="year">รายปี</button>
+    <button data-m="quarter">ไตรมาส</button>
+    <button data-m="month">รายเดือน</button>
+    <button data-m="half">ราย 15 วัน</button>
+    <button data-m="day">รายวัน</button>
+    <button id="pprev" aria-label="ช่วงก่อนหน้า">‹</button>
+    <select id="psel" aria-label="เลือกช่วงเวลา"></select>
+    <button id="pnext" aria-label="ช่วงถัดไป">›</button>
+    <span class="rng" id="prange"></span>
+  </section>
+
   <section class="score">
     <div class="ringbox">
       <svg width="140" height="140" viewBox="0 0 140 140" role="img" aria-label="คะแนน KPI จำนวนงานต่อวัน">
@@ -125,6 +142,10 @@ const DAILY_TARGET = 5;
 const $ = id => document.getElementById(id);
 const fmt = n => Math.round(n).toLocaleString("th-TH");
 let ALL = [], charts = {}, sortKey = "iso", sortDir = -1, inited = false;
+let MODE = "month", CUR = "", ANCHOR = "", RANGE = {from:"", to:""};
+
+const TH_M = ["ม.ค.","ก.พ.","มี.ค.","เม.ย.","พ.ค.","มิ.ย.","ก.ค.","ส.ค.","ก.ย.","ต.ค.","พ.ย.","ธ.ค."];
+const TH_FULL = ["มกราคม","กุมภาพันธ์","มีนาคม","เมษายน","พฤษภาคม","มิถุนายน","กรกฎาคม","สิงหาคม","กันยายน","ตุลาคม","พฤศจิกายน","ธันวาคม"];
 
 function parseCSV(t){
   const rows=[];let r=[],f="",q=false;
@@ -149,6 +170,68 @@ function toISO(s){
 }
 function showMsg(t){ $("msg").hidden=!t; $("msg").textContent=t||""; }
 const dmy = iso => iso.slice(8,10)+"/"+iso.slice(5,7)+"/"+iso.slice(0,4);
+
+/* ===== ช่วงเวลา: ปี / ไตรมาส / เดือน / 15 วัน / วัน ===== */
+function keyOf(iso, mode){
+  const y=iso.slice(0,4), m=iso.slice(5,7), d=+iso.slice(8,10);
+  if(mode==="year") return y;
+  if(mode==="quarter") return y+"-Q"+(Math.floor((+m-1)/3)+1);
+  if(mode==="month") return y+"-"+m;
+  if(mode==="half") return y+"-"+m+(d<=15?"-A":"-B");
+  if(mode==="day") return iso;
+  return "";
+}
+function rangeOf(mode, key){
+  const p=n=>String(n).padStart(2,"0");
+  if(mode==="all") return {from:"",to:""};
+  if(mode==="year") return {from:key+"-01-01",to:key+"-12-31"};
+  if(mode==="quarter"){
+    const y=key.slice(0,4), q=+key.slice(6), m1=(q-1)*3+1;
+    return {from:`${y}-${p(m1)}-01`, to:`${y}-${p(m1+2)}-31`};
+  }
+  if(mode==="month") return {from:key+"-01",to:key+"-31"};
+  if(mode==="half"){
+    const ym=key.slice(0,7);
+    return key.endsWith("A")?{from:ym+"-01",to:ym+"-15"}:{from:ym+"-16",to:ym+"-31"};
+  }
+  return {from:key,to:key};
+}
+function labelOf(mode, key){
+  if(mode==="year") return key;
+  if(mode==="quarter") return "ไตรมาส "+key.slice(6)+"/"+key.slice(0,4);
+  if(mode==="month") return TH_FULL[+key.slice(5,7)-1]+" "+key.slice(0,4);
+  if(mode==="half") return (key.endsWith("A")?"1-15 ":"16-สิ้นเดือน ")+TH_M[+key.slice(5,7)-1]+" "+key.slice(0,4);
+  return dmy(key);
+}
+function periods(){
+  const s=new Set(ALL.map(x=>x.iso).filter(Boolean).map(i=>keyOf(i,MODE)));
+  return [...s].sort().reverse();
+}
+function applyPeriod(){
+  const dates=ALL.map(x=>x.iso).filter(Boolean).sort();
+  const maxD=dates[dates.length-1]||"";
+  if(MODE!=="all"){
+    const list=periods();
+    if(!list.includes(CUR)){
+      const want=ANCHOR?keyOf(ANCHOR,MODE):"";
+      CUR=list.find(k=>k<=want)||list[list.length-1]||"";
+    }
+    RANGE=rangeOf(MODE,CUR);
+    if(CUR) ANCHOR=RANGE.to<maxD?RANGE.to:maxD;
+  }else{
+    RANGE={from:"",to:""};
+  }
+}
+function renderBar(){
+  document.querySelectorAll("#pbar button[data-m]").forEach(b=>b.classList.toggle("on",b.dataset.m===MODE));
+  const show=MODE!=="all", list=show?periods():[];
+  $("psel").hidden=!show; $("pprev").hidden=!show; $("pnext").hidden=!show;
+  $("psel").innerHTML=list.map(k=>`<option value="${k}">${labelOf(MODE,k)}</option>`).join("");
+  $("psel").value=CUR;
+  const i=list.indexOf(CUR);
+  $("pprev").disabled=!(i>=0&&i<list.length-1);
+  $("pnext").disabled=!(i>0);
+}
 
 async function load(){
   $("updated").textContent="กำลังโหลดข้อมูล…"; showMsg("");
@@ -200,11 +283,11 @@ async function load(){
     $("status").innerHTML='<option value="">ทั้งหมด</option>'+sts.map(s=>`<option>${s}</option>`).join("");
     $("status").value=sts.includes(keepStatus)?keepStatus:"";
     const dates=ALL.map(x=>x.iso).filter(Boolean).sort();
-    if(!inited){
-      $("from").value=dates[0]||"";
-      $("to").value=dates[dates.length-1]||"";
+    if(!inited){                       /* เปิดหน้าครั้งแรก = เดือนล่าสุดเสมอ */
+      MODE="month"; CUR=""; ANCHOR=dates[dates.length-1]||"";
       inited=true;
     }
+    applyPeriod();
     render();
   }catch(e){
     showMsg("โหลดข้อมูลไม่ได้: "+e.message);
@@ -212,7 +295,7 @@ async function load(){
   }
 }
 function filtered(){
-  const f=$("from").value,t=$("to").value,s=$("status").value,q=$("q").value.trim().toLowerCase();
+  const f=RANGE.from,t=RANGE.to,s=$("status").value,q=$("q").value.trim().toLowerCase();
   return ALL.filter(x=>(!f||(x.iso&&x.iso>=f))&&(!t||(x.iso&&x.iso<=t))&&(!s||x.status===s)&&(!q||x.id.toLowerCase().includes(q)));
 }
 function draw(key,cfg){
@@ -239,13 +322,16 @@ function scoreOf(byDay){
   };
 }
 function renderScore(){
-  const C=376.99, f=$("from").value, t=$("to").value;
+  const C=376.99, f=RANGE.from, t=RANGE.to;
   const inRange=ALL.filter(x=>x.iso&&(!f||x.iso>=f)&&(!t||x.iso<=t));
   const s=scoreOf(countByDay(inRange));
   if(!s){
     $("scoreV").textContent="–"; $("badge").textContent="ไม่มีงานในช่วงที่เลือก"; $("badge").className="badge warn";
-    $("arc").style.strokeDashoffset=C; $("scoreSub").textContent=""; $("trend").textContent=""; return;
+    $("arc").style.strokeDashoffset=C; $("scoreSub").textContent=""; $("trend").textContent="";
+    $("prange").textContent=""; return;
   }
+  $("prange").textContent=MODE==="all"?"ทุกช่วงเวลา: "+dmy(s.first)+" – "+dmy(s.last):
+    (s.first===s.last?dmy(s.first):dmy(s.first)+" – "+dmy(s.last));
   const perfect=s.full===s.days;
   $("scoreV").innerHTML=Math.round(s.pct)+"<small>%</small>";
   $("arc").style.strokeDashoffset=(C*(1-s.pct/100)).toFixed(1);
@@ -277,6 +363,7 @@ function renderScore(){
 
 function render(){
   const D=filtered();
+  renderBar();
   renderScore();
 
   const total=D.reduce((a,x)=>a+x.fee,0);
@@ -325,7 +412,15 @@ function renderTable(D){
   $("tbl").querySelector("tbody").innerHTML=S.map(x=>"<tr>"+COLS.map(c=>`<td class="${c[0]==="fee"?"n":""}">${cell(x,c[0])}</td>`).join("")+"</tr>").join("");
   $("tbl").querySelectorAll("th").forEach(th=>th.onclick=()=>{const k=th.dataset.k;sortDir=sortKey===k?-sortDir:1;sortKey=k;renderTable(filtered())});
 }
-["from","to","status"].forEach(i=>$(i).addEventListener("change",render));
+
+/* ===== ปุ่มและตัวควบคุม ===== */
+document.querySelectorAll("#pbar button[data-m]").forEach(b=>b.addEventListener("click",()=>{
+  MODE=b.dataset.m; CUR=""; applyPeriod(); render();
+}));
+$("psel").addEventListener("change",()=>{ CUR=$("psel").value; applyPeriod(); render(); });
+$("pprev").addEventListener("click",()=>{ const l=periods(), i=l.indexOf(CUR); if(i>=0&&i<l.length-1){CUR=l[i+1]; applyPeriod(); render();} });
+$("pnext").addEventListener("click",()=>{ const l=periods(), i=l.indexOf(CUR); if(i>0){CUR=l[i-1]; applyPeriod(); render();} });
+$("status").addEventListener("change",render);
 $("q").addEventListener("input",()=>renderTable(filtered()));
 $("reload").onclick=load;
 load();

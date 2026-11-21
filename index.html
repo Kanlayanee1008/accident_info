@@ -156,6 +156,12 @@ const isCancel = x => x.status.startsWith("ยกเลิก");
 /* ===== KPI: เป้าวิ่งงานต่อวัน (ได้ครบเป้า = 100%) ===== */
 const DAILY_TARGET = 5;
 
+/* ===== แก้วันที่ Assign ชั่วคราว (ใช้เฉพาะงานที่ชีทยังไม่มีวันที่ Assign) =====
+   รูปแบบ: "เลขที่รับแจ้ง": "ปี-เดือน-วัน"  เมื่อชีทมีวันที่ Assign จริงแล้ว ค่านี้จะไม่มีผลเอง */
+const OVERRIDE = {
+  "ACD001-26-2-244492": "2026-11-21"
+};
+
 /* ===== ส่งออก Excel: แนวกระดาษ "portrait" (แนวตั้ง) หรือ "landscape" (แนวนอน) ===== */
 const XL_ORIENT = "portrait";
 
@@ -275,7 +281,7 @@ async function load(){
     };
     if(I.id<0) throw new Error("ไม่พบคอลัมน์ เลขที่รับแจ้ง ในแท็บ "+SHEET_TAB+" (หัวคอลัมน์ที่พบ: "+header.slice(0,6).join(", ")+")");
     const map=new Map();
-    let noAssign=0;
+    let noAssign=0, overridden=0;
     rows.forEach(c=>{
       const g=v=>v>=0?(c[v]||"").trim():"";
       const o={
@@ -291,6 +297,8 @@ async function load(){
       const asg=toISO(g(I.asgISO))||toISO(g(I.asg));
       o.iso=asg||toISO(g(I.nISO))||toISO(g(I.nD))||toISO(g(I.accISO))||toISO(g(I.accD));
       if(!asg) noAssign++;
+      /* แก้ชั่วคราว: เฉพาะงานที่ยังไม่มีวันที่ Assign ในชีท */
+      if(!asg && OVERRIDE[o.id]){ o.iso=OVERRIDE[o.id]; overridden++; }
       o.hour=parseInt(o.time.split(":")[0],10);
       map.set(o.id,o);
     });
@@ -298,7 +306,7 @@ async function load(){
     if(!ALL.length) throw new Error("อ่านชีทได้แต่ไม่มีแถวข้อมูล");
     const latest=ALL.map(x=>x.pulled).sort().pop();
     $("updated").textContent="ข้อมูลล่าสุดจากชีท: "+(latest||"-")+" • "+ALL.length+" รายการ"+
-      (noAssign?` • ${noAssign} รายการยังไม่มีวันที่ Assign (ใช้วันที่รับแจ้งแทน)`:"");
+      (noAssign?` • ${noAssign} รายการยังไม่มีวันที่ Assign (ใช้วันที่รับแจ้งแทน${overridden?`, แก้เอง ${overridden} รายการ`:""})`:"");
     const keepStatus=$("status").value;
     const sts=[...new Set(ALL.map(x=>x.status))].filter(Boolean);
     $("status").innerHTML='<option value="">ทั้งหมด</option>'+sts.map(s=>`<option>${s}</option>`).join("");

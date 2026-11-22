@@ -430,17 +430,19 @@ function render(){
 
   renderTable(D);
 }
-const COLS=[["status","สถานะ"],["id","เลขที่รับแจ้ง"],["d","วันที่บันทึกรับแจ้ง"],["time","เวลารับแจ้ง"],["fee","ค่าสำรวจ"],["res","ผลฝ่ายถูกผิด"],["claim","ประเภทเคลม"]];
+const COLS=[["no","ลำดับ"],["status","สถานะ"],["id","เลขที่รับแจ้ง"],["d","วันที่บันทึกรับแจ้ง"],["time","เวลารับแจ้ง"],["fee","ค่าสำรวจ"],["res","ผลฝ่ายถูกผิด"],["claim","ประเภทเคลม"]];
 function cell(x,k){
   if(k==="fee") return fmt(x.fee);
   return x[k]??"";
 }
 function renderTable(D){
-  $("tbl").querySelector("thead").innerHTML="<tr>"+COLS.map(c=>`<th class="${c[0]==="fee"?"n":""}" data-k="${c[0]}">${c[1]}${sortKey===c[0]?(sortDir>0?" ▲":" ▼"):""}</th>`).join("")+"</tr>";
+  const ctr=k=>(k==="fee"||k==="no")?"n":"";
+  $("tbl").querySelector("thead").innerHTML="<tr>"+COLS.map(c=>`<th class="${ctr(c[0])}" data-k="${c[0]}">${c[1]}${sortKey===c[0]?(sortDir>0?" ▲":" ▼"):""}</th>`).join("")+"</tr>";
   const S=[...D].sort((a,b)=>(a[sortKey]>b[sortKey]?1:a[sortKey]<b[sortKey]?-1:0)*sortDir);
+  S.forEach((x,i)=>{ x.no=i+1; });   /* ลำดับ 1,2,3… ตามแถวที่แสดงอยู่ */
   LAST=S;   /* เก็บแถวที่แสดงอยู่ตอนนี้ไว้ใช้ส่งออก Excel */
-  $("tbl").querySelector("tbody").innerHTML=S.map(x=>"<tr>"+COLS.map(c=>`<td class="${c[0]==="fee"?"n":""}">${cell(x,c[0])}</td>`).join("")+"</tr>").join("");
-  $("tbl").querySelectorAll("th").forEach(th=>th.onclick=()=>{const k=th.dataset.k;sortDir=sortKey===k?-sortDir:1;sortKey=k;renderTable(filtered())});
+  $("tbl").querySelector("tbody").innerHTML=S.map(x=>"<tr>"+COLS.map(c=>`<td class="${ctr(c[0])}">${cell(x,c[0])}</td>`).join("")+"</tr>").join("");
+  $("tbl").querySelectorAll("th").forEach(th=>th.onclick=()=>{const k=th.dataset.k;if(k==="no")return;sortDir=sortKey===k?-sortDir:1;sortKey=k;renderTable(filtered())});
 }
 
 /* ===== ส่งออก Excel เฉพาะตารางรายการ จัดหน้า A4 ===== */
@@ -452,7 +454,7 @@ async function exportXlsx(){
   if(!rows.length){ showMsg("ไม่มีรายการให้ส่งออกในช่วงที่เลือก"); return; }
   showMsg("");
 
-  const FONT="Tahoma", LAST_COL="G";
+  const FONT="Tahoma", LAST_COL="H";
   const periodTxt=MODE==="all"?"ทุกช่วงเวลา":labelOf(MODE,CUR);
   const st=$("status").value, q=$("q").value.trim();
   const now=new Date();
@@ -462,7 +464,7 @@ async function exportXlsx(){
   const wb=new ExcelJS.Workbook();
   wb.creator="แดชบอร์ดงานอุบัติเหตุ";
   const ws=wb.addWorksheet("รายการ",{views:[{state:"frozen",ySplit:3}]});
-  ws.columns=[{width:14},{width:24},{width:19},{width:13},{width:12},{width:26},{width:20}];
+  ws.columns=[{width:8},{width:14},{width:24},{width:19},{width:13},{width:12},{width:26},{width:20}];
 
   const thin={style:"thin",color:{argb:"FFBFC8CE"}};
   const border={top:thin,left:thin,bottom:thin,right:thin};
@@ -492,15 +494,15 @@ async function exportXlsx(){
   });
 
   rows.forEach((x,i)=>{
-    const r=ws.addRow([x.status,x.id,x.d,x.time,x.fee,x.res,x.claim]);
+    const r=ws.addRow([x.no,x.status,x.id,x.d,x.time,x.fee,x.res,x.claim]);
     r.height=18;
     r.eachCell({includeEmpty:true},(c,n)=>{
       c.font={name:FONT,size:10};
       c.border=border;
-      c.alignment={vertical:"middle",horizontal:n===5||n===3||n===4?"center":"left"};
+      c.alignment={vertical:"middle",horizontal:n===1||n===4||n===5||n===6?"center":"left"};
       if(i%2===1) c.fill={type:"pattern",pattern:"solid",fgColor:{argb:"FFF3F5F7"}};
     });
-    r.getCell(5).numFmt="#,##0";
+    r.getCell(6).numFmt="#,##0";
   });
 
   ws.pageSetup={

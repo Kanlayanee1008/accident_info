@@ -60,6 +60,7 @@ main{padding:12px clamp(16px,4vw,40px) 40px;display:grid;gap:14px}
 .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:14px}
 .kpi{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px;border-left:5px solid var(--a);box-shadow:var(--shadow)}
 .kpi:nth-child(2){border-left-color:var(--b)}.kpi:nth-child(3){border-left-color:var(--d)}.kpi:nth-child(4){border-left-color:var(--c)}.kpi:nth-child(5){border-left-color:var(--b)}
+.kpi:nth-child(6){border-left-color:var(--ok)}.kpi:nth-child(7){border-left-color:var(--d)}
 .kpi .v{font-size:1.9rem;font-weight:700;line-height:1.2}
 .kpi .l{color:var(--mute);font-size:.82rem}
 .grid{display:grid;grid-template-columns:repeat(12,1fr);gap:14px}
@@ -127,6 +128,8 @@ th.n{text-align:center}
     <div class="kpi"><div class="v" id="k3">–</div><div class="l">เฉลี่ยต่องาน (บาท)</div></div>
     <div class="kpi"><div class="v" id="k4">–</div><div class="l">งานที่ยังไม่ส่ง (ไม่รวมยกเลิก)</div></div>
     <div class="kpi"><div class="v" id="k5">–</div><div class="l">ยกเลิกเปิดเคลม</div></div>
+    <div class="kpi"><div class="v" id="k6">–</div><div class="l">หัก 20 บาททุกงาน รวม (บาท)</div></div>
+    <div class="kpi"><div class="v" id="k7">–</div><div class="l">ยอดหลังหักภาษี ณ ที่จ่าย รวม (บาท)</div></div>
   </section>
 
   <section class="grid">
@@ -163,13 +166,15 @@ const OVERRIDE = {
 };
 
 /* ===== ส่งออก Excel: แนวกระดาษ "portrait" (แนวตั้ง) หรือ "landscape" (แนวนอน) ===== */
-const XL_ORIENT = "portrait";
+const XL_ORIENT = "landscape";
 
 /* ===== ตัวช่วย ===== */
 const $ = id => document.getElementById(id);
 const fmt = n => Math.round(n).toLocaleString("th-TH");
+const fmt2 = n => n.toLocaleString("th-TH",{minimumFractionDigits:0,maximumFractionDigits:2});
 let ALL = [], charts = {}, sortKey = "iso", sortDir = -1, inited = false, LAST = [];
 let MODE = "month", CUR = "", ANCHOR = "", RANGE = {from:"", to:""};
+let HAS_NET = false, HAS_WHT = false;
 
 const TH_M = ["ม.ค.","ก.พ.","มี.ค.","เม.ย.","พ.ค.","มิ.ย.","ก.ค.","ส.ค.","ก.ย.","ต.ค.","พ.ย.","ธ.ค."];
 const TH_FULL = ["มกราคม","กุมภาพันธ์","มีนาคม","เมษายน","พฤษภาคม","มิถุนายน","กรกฎาคม","สิงหาคม","กันยายน","ตุลาคม","พฤศจิกายน","ธันวาคม"];
@@ -271,24 +276,30 @@ async function load(){
     const rows=parseCSV(text);
     const header=rows.shift().map(h=>h.trim());
     const ix=n=>header.indexOf(n);
+    /* หาคอลัมน์ตามคำสำคัญ ไม่สนใจช่องว่าง */
+    const ixLike=(...ks)=>header.findIndex(h=>{const t=h.replace(/\s+/g,"");return ks.every(k=>t.includes(k));});
     const I={
       status:ix("สถานะ"), id:ix("เลขที่รับแจ้ง"),
       accD:ix("วันที่เกิดเหตุ"), accISO:ix("วันที่ ค.ศ."),
       nD:ix("วันที่บันทึกรับแจ้ง"), nT:ix("เวลาบันทึกรับแจ้ง"), nISO:ix("วันที่บันทึก ค.ศ."),
       asg:ix("วันที่ Assign งานให้ Surveyor"), asgISO:ix("วันที่ Assign ค.ศ."),
       fee:ix("ค่าใช้จ่ายสำรวจภัย"), res:ix("ผลฝ่ายถูกผิด"), claim:ix("ประเภทเคลม"),
+      net20:ixLike("หัก20"), wht:ixLike("หลังหัก","ณที่จ่าย"),
       pulled:ix("ดึงข้อมูลเมื่อ")
     };
     if(I.id<0) throw new Error("ไม่พบคอลัมน์ เลขที่รับแจ้ง ในแท็บ "+SHEET_TAB+" (หัวคอลัมน์ที่พบ: "+header.slice(0,6).join(", ")+")");
+    HAS_NET=I.net20>=0; HAS_WHT=I.wht>=0;
     const map=new Map();
     let noAssign=0, overridden=0;
     rows.forEach(c=>{
       const g=v=>v>=0?(c[v]||"").trim():"";
+      const num=v=>{const s=g(v).replace(/,/g,"");return s===""?NaN:parseFloat(s);};
       const o={
         status:g(I.status), id:g(I.id),
         d:g(I.nD)||g(I.accD),
         time:g(I.nT),
         fee:parseFloat(g(I.fee).replace(/,/g,""))||0,
+        net20:num(I.net20), wht:num(I.wht),
         res:g(I.res), claim:g(I.claim),
         pulled:g(I.pulled)
       };
@@ -307,6 +318,10 @@ async function load(){
     const latest=ALL.map(x=>x.pulled).sort().pop();
     $("updated").textContent="ข้อมูลล่าสุดจากชีท: "+(latest||"-")+" • "+ALL.length+" รายการ"+
       (noAssign?` • ${noAssign} รายการยังไม่มีวันที่ Assign (ใช้วันที่รับแจ้งแทน${overridden?`, แก้เอง ${overridden} รายการ`:""})`:"");
+    const miss=[];
+    if(!HAS_NET) miss.push("หัก20 บาททุกงาน");
+    if(!HAS_WHT) miss.push("ยอดค่าใช้จ่ายหลังหักภาษี ณ ที่จ่าย");
+    if(miss.length) showMsg("ไม่พบคอลัมน์ในแท็บ "+SHEET_TAB+": "+miss.join(", ")+" (ถ้าเพิ่งรัน history_all.py คอลัมน์ที่เพิ่มเองในชีทจะถูกลบ)");
     const keepStatus=$("status").value;
     const sts=[...new Set(ALL.map(x=>x.status))].filter(Boolean);
     $("status").innerHTML='<option value="">ทั้งหมด</option>'+sts.map(s=>`<option>${s}</option>`).join("");
@@ -396,11 +411,14 @@ function render(){
   renderScore();
 
   const total=D.reduce((a,x)=>a+x.fee,0);
+  const sumF=k=>D.reduce((a,x)=>a+(Number.isFinite(x[k])?x[k]:0),0);
   $("k1").textContent=fmt(D.length);
   $("k2").textContent=fmt(total);
   $("k3").textContent=D.length?fmt(total/D.length):"–";
   $("k4").textContent=fmt(D.filter(x=>!DONE.includes(x.status)&&!isCancel(x)).length);
   $("k5").textContent=fmt(D.filter(isCancel).length);
+  $("k6").textContent=HAS_NET?fmt2(sumF("net20")):"–";
+  $("k7").textContent=HAS_WHT?fmt2(sumF("wht")):"–";
 
   const css=getComputedStyle(document.documentElement);
   const col=n=>css.getPropertyValue(n).trim();
@@ -430,15 +448,18 @@ function render(){
 
   renderTable(D);
 }
-const COLS=[["no","ลำดับ"],["status","สถานะ"],["id","เลขที่รับแจ้ง"],["d","วันที่บันทึกรับแจ้ง"],["time","เวลารับแจ้ง"],["fee","ค่าสำรวจ"],["res","ผลฝ่ายถูกผิด"],["claim","ประเภทเคลม"]];
+const COLS=[["no","ลำดับ"],["status","สถานะ"],["id","เลขที่รับแจ้ง"],["d","วันที่บันทึกรับแจ้ง"],["time","เวลารับแจ้ง"],["fee","ค่าสำรวจ"],["net20","หัก 20 บาททุกงาน"],["wht","ยอดหลังหักภาษี ณ ที่จ่าย"],["res","ผลฝ่ายถูกผิด"],["claim","ประเภทเคลม"]];
+const NUMCOL=k=>k==="fee"||k==="no"||k==="net20"||k==="wht";
 function cell(x,k){
   if(k==="fee") return fmt(x.fee);
+  if(k==="net20"||k==="wht") return Number.isFinite(x[k])?fmt2(x[k]):"";
   return x[k]??"";
 }
 function renderTable(D){
-  const ctr=k=>(k==="fee"||k==="no")?"n":"";
+  const ctr=k=>NUMCOL(k)?"n":"";
   $("tbl").querySelector("thead").innerHTML="<tr>"+COLS.map(c=>`<th class="${ctr(c[0])}" data-k="${c[0]}">${c[1]}${sortKey===c[0]?(sortDir>0?" ▲":" ▼"):""}</th>`).join("")+"</tr>";
-  const S=[...D].sort((a,b)=>(a[sortKey]>b[sortKey]?1:a[sortKey]<b[sortKey]?-1:0)*sortDir);
+  const val=(x,k)=>(k==="net20"||k==="wht")?(Number.isFinite(x[k])?x[k]:-Infinity):x[k];
+  const S=[...D].sort((a,b)=>(val(a,sortKey)>val(b,sortKey)?1:val(a,sortKey)<val(b,sortKey)?-1:0)*sortDir);
   S.forEach((x,i)=>{ x.no=i+1; });   /* ลำดับ 1,2,3… ตามแถวที่แสดงอยู่ */
   LAST=S;   /* เก็บแถวที่แสดงอยู่ตอนนี้ไว้ใช้ส่งออก Excel */
   $("tbl").querySelector("tbody").innerHTML=S.map(x=>"<tr>"+COLS.map(c=>`<td class="${ctr(c[0])}">${cell(x,c[0])}</td>`).join("")+"</tr>").join("");
@@ -454,7 +475,7 @@ async function exportXlsx(){
   if(!rows.length){ showMsg("ไม่มีรายการให้ส่งออกในช่วงที่เลือก"); return; }
   showMsg("");
 
-  const FONT="Tahoma", LAST_COL="H";
+  const FONT="Tahoma", LAST_COL="J";
   const periodTxt=MODE==="all"?"ทุกช่วงเวลา":labelOf(MODE,CUR);
   const st=$("status").value, q=$("q").value.trim();
   const now=new Date();
@@ -464,7 +485,7 @@ async function exportXlsx(){
   const wb=new ExcelJS.Workbook();
   wb.creator="แดชบอร์ดงานอุบัติเหตุ";
   const ws=wb.addWorksheet("รายการ",{views:[{state:"frozen",ySplit:3}]});
-  ws.columns=[{width:8},{width:14},{width:24},{width:19},{width:13},{width:12},{width:26},{width:20}];
+  ws.columns=[{width:8},{width:14},{width:24},{width:19},{width:13},{width:12},{width:16},{width:20},{width:26},{width:20}];
 
   const thin={style:"thin",color:{argb:"FFBFC8CE"}};
   const border={top:thin,left:thin,bottom:thin,right:thin};
@@ -485,7 +506,7 @@ async function exportXlsx(){
 
   const head=ws.getRow(3);
   head.values=COLS.map(c=>c[1]);
-  head.height=22;
+  head.height=30;
   head.eachCell(c=>{
     c.font={name:FONT,size:10,bold:true,color:{argb:"FFFFFFFF"}};
     c.fill={type:"pattern",pattern:"solid",fgColor:{argb:"FF0E6B73"}};
@@ -494,15 +515,22 @@ async function exportXlsx(){
   });
 
   rows.forEach((x,i)=>{
-    const r=ws.addRow([x.no,x.status,x.id,x.d,x.time,x.fee,x.res,x.claim]);
+    const r=ws.addRow([
+      x.no,x.status,x.id,x.d,x.time,x.fee,
+      Number.isFinite(x.net20)?x.net20:"",
+      Number.isFinite(x.wht)?x.wht:"",
+      x.res,x.claim
+    ]);
     r.height=18;
     r.eachCell({includeEmpty:true},(c,n)=>{
       c.font={name:FONT,size:10};
       c.border=border;
-      c.alignment={vertical:"middle",horizontal:n===1||n===4||n===5||n===6?"center":"left"};
+      c.alignment={vertical:"middle",horizontal:(n===1||n===4||n===5||n===6||n===7||n===8)?"center":"left"};
       if(i%2===1) c.fill={type:"pattern",pattern:"solid",fgColor:{argb:"FFF3F5F7"}};
     });
     r.getCell(6).numFmt="#,##0";
+    r.getCell(7).numFmt="#,##0.00";
+    r.getCell(8).numFmt="#,##0.00";
   });
 
   ws.pageSetup={

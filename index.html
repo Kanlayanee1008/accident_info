@@ -347,6 +347,41 @@ function draw(key,cfg){
   charts[key]=new Chart($(key),cfg);
 }
 
+/* ===== วาดตัวเลขบนกราฟรายวัน (แท่ง = จำนวนงาน, เส้น = ค่าสำรวจ) ===== */
+const valueLabels={
+  id:"valueLabels",
+  afterDatasetsDraw(chart){
+    if(chart.data.labels.length>31) return;   /* ช่วงยาวเกินไป ไม่แสดงตัวเลข */
+    const ctx=chart.ctx;
+    const dark=window.matchMedia&&window.matchMedia("(prefers-color-scheme: dark)").matches;
+    const cardCol=getComputedStyle(document.documentElement).getPropertyValue("--card").trim()||"#fff";
+    const inkCol=getComputedStyle(document.documentElement).getPropertyValue("--ink").trim()||"#14232e";
+    ctx.save();
+    ctx.font='600 12px "IBM Plex Sans Thai",sans-serif';
+    ctx.textAlign="center";
+    chart.data.datasets.forEach((ds,di)=>{
+      const meta=chart.getDatasetMeta(di);
+      if(meta.hidden) return;
+      meta.data.forEach((el,i)=>{
+        const v=ds.data[i];
+        if(v===null||v===undefined) return;
+        const txt=Number(v).toLocaleString("th-TH");
+        if(ds.type==="bar"){
+          const h=el.base-el.y;
+          if(h>=24){ ctx.fillStyle="#ffffff"; ctx.fillText(txt,el.x,el.y+16); }
+          else{ ctx.fillStyle=inkCol; ctx.fillText(txt,el.x,el.y-6); }
+        }else{
+          ctx.lineWidth=3; ctx.strokeStyle=cardCol;          /* ขอบสีพื้นการ์ด กันตัวเลขกลืนกับแท่ง */
+          ctx.fillStyle=dark?"#f1c97a":"#9a6700";
+          ctx.strokeText(txt,el.x,el.y-10);
+          ctx.fillText(txt,el.x,el.y-10);
+        }
+      });
+    });
+    ctx.restore();
+  }
+};
+
 /* ===== KPI: จำนวนงานของวัน ÷ เป้า (สูงสุด 100%) ไม่สนใจสถานะ ===== */
 function countByDay(list){
   const m={};
@@ -430,8 +465,9 @@ function render(){
   const days=Object.keys(byDay).sort();
   draw("cDaily",{data:{labels:days.map(d=>d.slice(5)),datasets:[
     {type:"bar",label:"จำนวนงาน",data:days.map(d=>byDay[d].n),backgroundColor:col("--a"),yAxisID:"y",borderRadius:3},
-    {type:"line",label:"ค่าสำรวจ (บาท)",data:days.map(d=>byDay[d].fee),borderColor:col("--b"),backgroundColor:col("--b"),yAxisID:"y1",tension:.25,pointRadius:1}]},
-    options:{maintainAspectRatio:false,scales:{x:{grid:{display:false}},y:{grid,title:{display:true,text:"งาน"},beginAtZero:true,ticks:{precision:0}},y1:{position:"right",grid:{display:false},beginAtZero:true,title:{display:true,text:"บาท"}}}}});
+    {type:"line",label:"ค่าสำรวจ (บาท)",data:days.map(d=>byDay[d].fee),borderColor:col("--b"),backgroundColor:col("--b"),yAxisID:"y1",tension:.25,pointRadius:3}]},
+    plugins:[valueLabels],
+    options:{maintainAspectRatio:false,layout:{padding:{top:22}},scales:{x:{grid:{display:false}},y:{grid,title:{display:true,text:"งาน"},beginAtZero:true,grace:"12%",ticks:{precision:0}},y1:{position:"right",grid:{display:false},beginAtZero:true,grace:"12%",title:{display:true,text:"บาท"}}}}});
 
   const bySt={};D.forEach(x=>bySt[x.status]=(bySt[x.status]||0)+1);
   draw("cStatus",{type:"doughnut",data:{labels:Object.keys(bySt),datasets:[{data:Object.values(bySt),backgroundColor:[col("--a"),col("--b"),col("--c"),col("--d"),"#8aa"],borderWidth:0}]},

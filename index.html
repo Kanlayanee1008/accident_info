@@ -9,6 +9,7 @@
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 <style>
 :root{
   /* ===== สีพื้นแดชบอร์ด: กรมท่า (แก้ตรงนี้เพื่อเปลี่ยนธีม) ===== */
@@ -37,6 +38,7 @@ h1{margin:0;font-size:1.6rem;font-weight:700;color:var(--hd)}
 .controls label{font-size:.8rem;color:var(--hdmute)}
 input,select,button,textarea{font:inherit;font-size:.9rem;padding:6px 10px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink)}
 button{cursor:pointer;background:var(--a);color:#fff;border-color:var(--a)}
+button:disabled{opacity:.55;cursor:default}
 button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid var(--b);outline-offset:2px}
 .pbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 16px;box-shadow:var(--shadow)}
 .pbar button{background:var(--card);color:var(--ink);border:1px solid var(--line);border-radius:10px;padding:6px 14px}
@@ -78,6 +80,7 @@ th.n{text-align:center}
 .thead h2{margin:0}
 .mgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px}
 .mgrid label{display:flex;flex-direction:column;gap:4px;font-size:.8rem;color:var(--mute)}
+.mnote{grid-column:1/-1;margin:0;font-size:.8rem;color:var(--mute)}
 .mact{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:10px;align-items:center}
 .mact .ghost{background:var(--card);color:var(--ink);border-color:var(--line)}
 .mmsg{font-size:.85rem}
@@ -154,6 +157,7 @@ th.n{text-align:center}
         <select id="m_claim"><option value=""></option><option>เคลมสด</option><option>เคลมใน</option><option>เคลมนัดหมาย</option></select>
       </label>
       <label>หมายเหตุ<input id="m_note"></label>
+      <p class="mnote">กดบันทึกครั้งแรกจะมีหน้าต่างให้ล็อกอิน Google (ใช้บัญชีที่มีสิทธิ์แก้ไขชีท accident_info) แล้วระบบเพิ่มแถวในแท็บ manual ให้เอง</p>
       <div class="mact">
         <button type="submit">บันทึก</button>
         <button type="button" class="ghost" id="mCancel">ปิด</button>
@@ -161,7 +165,7 @@ th.n{text-align:center}
       </div>
     </form>
     <div class="mcopy" id="mCopy" hidden>
-      <p>คัดลอกแถวนี้ไปวางในแถวว่างถัดไปของแท็บ <b>manual</b> (คอลัมน์ A) เพื่อเก็บถาวร ตอนนี้แสดงบนหน้าจอชั่วคราวเท่านั้น</p>
+      <p>บันทึกอัตโนมัติไม่สำเร็จ: คัดลอกแถวนี้ไปวางในแถวว่างถัดไปของแท็บ <b>manual</b> (คอลัมน์ A) เพื่อเก็บถาวร ตอนนี้แสดงบนหน้าจอชั่วคราวเท่านั้น</p>
       <textarea id="mTsv" rows="2" readonly></textarea>
       <div><button type="button" id="mCopyBtn">คัดลอกแถว</button></div>
     </div>
@@ -196,9 +200,11 @@ const isCancel = x => x.status.startsWith("ยกเลิก");
 const MANUAL_TAB = "manual";
 const MANUAL_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(MANUAL_TAB)}`;
 const MANUAL_STATUS = "คีย์เอง";
-/* บันทึกลงชีทอัตโนมัติ (ไม่บังคับ): วาง URL ของ Apps Script และรหัสที่ตั้งไว้ ถ้าเว้นว่างจะใช้วิธีคัดลอกแถวไปวางเอง */
-const APPS_URL = "";
-const APPS_SECRET = "";
+/* ===== บันทึกงานคีย์เองลงชีทโดยล็อกอิน Google ในหน้านี้ =====
+   ใส่ OAuth Client ID จาก Google Cloud (ชนิด Web application, ไม่ใช่ความลับ)
+   ถ้าเว้นว่าง จะใช้วิธีคัดลอกแถวไปวางในแท็บ manual เอง */
+const GOOGLE_CLIENT_ID = "";
+const SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets";
 /* ใช้คำนวณ "หัก 20 บาท" และ "หลังหักภาษี ณ ที่จ่าย" ของงานคีย์เอง (ให้ตรงกับสูตรในชีท) */
 const DEDUCT = 20, WHT_RATE = 0.05;
 
@@ -685,6 +691,45 @@ async function exportXlsx(){
   setTimeout(()=>URL.revokeObjectURL(a.href),1500);
 }
 
+/* ===== ล็อกอิน Google และเขียนแถวลงแท็บ manual (Google Identity Services + Sheets API) ===== */
+let TOKEN="", TOKEN_EXP=0, tokenClient=null, tokOk=null, tokErr=null;
+function getToken(){
+  return new Promise((resolve,reject)=>{
+    if(TOKEN&&Date.now()<TOKEN_EXP-60000){ resolve(TOKEN); return; }
+    const fail=m=>{ const e=new Error(m); e.login=true; reject(e); };
+    if(!window.google||!google.accounts||!google.accounts.oauth2){
+      fail("โหลดระบบล็อกอิน Google ไม่สำเร็จ (ตรวจอินเทอร์เน็ตหรือตัวบล็อกโฆษณา)"); return;
+    }
+    if(!tokenClient){
+      tokenClient=google.accounts.oauth2.initTokenClient({
+        client_id:GOOGLE_CLIENT_ID, scope:SHEETS_SCOPE,
+        callback:r=>{ if(tokOk) tokOk(r); },
+        error_callback:e=>{ if(tokErr) tokErr(e); }
+      });
+    }
+    tokOk=resp=>{
+      if(resp.error){ fail(resp.error_description||resp.error); return; }
+      TOKEN=resp.access_token; TOKEN_EXP=Date.now()+(+resp.expires_in||3600)*1000; resolve(TOKEN);
+    };
+    tokErr=err=>{
+      const t=err&&err.type;
+      fail(t==="popup_closed"?"ปิดหน้าต่างล็อกอินก่อนเสร็จ"
+          :t==="popup_failed_to_open"?"เบราว์เซอร์บล็อกหน้าต่างล็อกอิน (อนุญาตป๊อปอัปแล้วกดบันทึกอีกครั้ง)"
+          :(t||"ล็อกอินไม่สำเร็จ"));
+    };
+    tokenClient.requestAccessToken();
+  });
+}
+async function appendRow(token,row){
+  const url=`https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${encodeURIComponent(MANUAL_TAB+"!A:I")}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`;
+  const res=await fetch(url,{method:"POST",headers:{Authorization:"Bearer "+token,"Content-Type":"application/json"},
+                             body:JSON.stringify({values:[row]})});
+  if(!res.ok){
+    let m=""; try{ m=(await res.json()).error.message; }catch(e){}
+    const err=new Error("HTTP "+res.status+(m?": "+m:"")); err.status=res.status; throw err;
+  }
+}
+
 /* ===== ฟอร์มเพิ่มงานนอกระบบ ===== */
 function todayISO(){ const d=new Date(); return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate()); }
 function mOut(t,bad){ const e=$("mOut"); e.textContent=t||""; e.style.color=bad?"var(--c)":"var(--ok)"; }
@@ -695,6 +740,7 @@ $("mAdd").addEventListener("click",()=>{
 $("mCancel").addEventListener("click",()=>{ $("mpanel").hidden=true; });
 $("mform").addEventListener("submit",async ev=>{
   ev.preventDefault(); mOut(""); $("mCopy").hidden=true;
+  const btn=ev.submitter||$("mform").querySelector('button[type="submit"]');
   const date=$("m_date").value, feeRaw=$("m_fee").value;
   if(!date){ mOut("เลือกวันที่ Assign ก่อน",true); return; }
   if(feeRaw===""||!(parseFloat(feeRaw)>=0)){ mOut("กรอกค่าสำรวจ (ใส่ 0 ได้ถ้าไม่มี)",true); return; }
@@ -703,22 +749,38 @@ $("mform").addEventListener("submit",async ev=>{
            res:$("m_res").value,claim:$("m_claim").value,status:MANUAL_STATUS,note:$("m_note").value.trim()};
   if(!f.id) f.id="MAN-"+now.getFullYear()+pad(now.getMonth()+1)+pad(now.getDate())+"-"+pad(now.getHours())+pad(now.getMinutes())+pad(now.getSeconds());
   if(ALL.some(x=>x.id===f.id)){ mOut("เลขที่รับแจ้งนี้มีอยู่แล้ว",true); return; }
-  const row=[f.id,f.policy,f.date,f.time,f.fee,f.res,f.claim,f.status,f.note];
-  if(APPS_URL){
-    try{
-      await fetch(APPS_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain;charset=utf-8"},
-                            body:JSON.stringify({secret:APPS_SECRET,row})});
-      PENDING.push(manualObj(f));
-      mOut("ส่งแล้ว: "+f.id+" (ตรวจในแท็บ manual ของชีทได้)");
-      $("mform").reset(); $("m_date").value=todayISO();
-      load(); setTimeout(load,6000);
-    }catch(e){ mOut("ส่งไม่สำเร็จ: "+e.message,true); }
-  }else{
+  /* ค่าสำรวจส่งเป็นตัวเลข ส่วนวันที่/เวลา/เลข ส่งเป็นข้อความ (valueInputOption=RAW จึงไม่ถูกแปลงรูปแบบ) */
+  const row=[f.id,f.policy,f.date,f.time,parseFloat(f.fee),f.res,f.claim,f.status,f.note];
+
+  const fallback=why=>{            /* บันทึกอัตโนมัติไม่ได้ → ใช้วิธีคัดลอกแถวไปวางเอง (ข้อมูลไม่หาย) */
     $("mTsv").value=row.join("\t"); $("mCopy").hidden=false;
+    PENDING.push(manualObj(f)); load();
+    mOut(why+" — แสดงบนแดชบอร์ดชั่วคราวแล้ว วางแถวด้านล่างในแท็บ manual เพื่อเก็บถาวร",true);
+  };
+  const resetForm=()=>{ $("mform").reset(); $("m_date").value=todayISO(); };
+
+  if(!GOOGLE_CLIENT_ID){ fallback("ยังไม่ได้ตั้ง GOOGLE_CLIENT_ID"); resetForm(); return; }
+
+  btn.disabled=true; mOut("กำลังล็อกอิน Google…");
+  try{
+    const token=await getToken();                      /* เรียกทันทีหลังกดปุ่ม เพื่อไม่ให้เบราว์เซอร์บล็อกหน้าต่างล็อกอิน */
+    mOut("กำลังบันทึกลงชีท…");
+    await appendRow(token,row);
     PENDING.push(manualObj(f));
-    mOut("แสดงในแดชบอร์ดชั่วคราวแล้ว — วางแถวด้านล่างในแท็บ manual เพื่อเก็บถาวร");
-    $("mform").reset(); $("m_date").value=todayISO();
-    load();
+    await load();                                      /* แสดงในแดชบอร์ดทันที */
+    mOut("บันทึกแล้ว: "+f.id+" (อยู่ในชีท manual และแดชบอร์ดเรียบร้อย)");
+    resetForm();
+  }catch(e){
+    if(e.login){ mOut("ล็อกอินไม่สำเร็จ: "+e.message,true); }      /* คงข้อมูลในฟอร์มไว้ ให้กดบันทึกใหม่ได้ */
+    else{
+      if(e.status===401) TOKEN="";
+      const why=(e.status===401||e.status===403)
+        ?"บัญชีที่ล็อกอินไม่มีสิทธิ์แก้ไขชีท หรือยังไม่ได้เปิด Google Sheets API ("+e.message+")"
+        :"บันทึกลงชีทไม่สำเร็จ ("+e.message+")";
+      fallback(why);
+    }
+  }finally{
+    btn.disabled=false;
   }
 });
 $("mCopyBtn").addEventListener("click",async()=>{

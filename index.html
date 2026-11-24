@@ -35,9 +35,9 @@ h1{margin:0;font-size:1.6rem;font-weight:700;color:var(--hd)}
 .sub{color:var(--hdmute);font-size:.85rem}
 .controls{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 .controls label{font-size:.8rem;color:var(--hdmute)}
-input,select,button{font:inherit;font-size:.9rem;padding:6px 10px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink)}
+input,select,button,textarea{font:inherit;font-size:.9rem;padding:6px 10px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink)}
 button{cursor:pointer;background:var(--a);color:#fff;border-color:var(--a)}
-button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--b);outline-offset:2px}
+button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid var(--b);outline-offset:2px}
 .pbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 16px;box-shadow:var(--shadow)}
 .pbar button{background:var(--card);color:var(--ink);border:1px solid var(--line);border-radius:10px;padding:6px 14px}
 .pbar button.on{background:#0f9a78;border-color:#0f9a78;color:#fff;font-weight:600}
@@ -76,6 +76,14 @@ td.n{text-align:center;font-variant-numeric:tabular-nums}
 th.n{text-align:center}
 .thead{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:0 0 10px}
 .thead h2{margin:0}
+.mgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px}
+.mgrid label{display:flex;flex-direction:column;gap:4px;font-size:.8rem;color:var(--mute)}
+.mact{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.mact .ghost{background:var(--card);color:var(--ink);border-color:var(--line)}
+.mmsg{font-size:.85rem}
+.mcopy{margin-top:10px;display:grid;gap:8px}
+.mcopy textarea{width:100%;font-family:ui-monospace,Consolas,monospace;font-size:.8rem}
+.mcopy p{margin:0;font-size:.82rem;color:var(--mute)}
 #msg{margin:0 clamp(16px,4vw,40px);padding:12px 16px;border:1px solid var(--c);border-radius:10px;color:var(--c);background:var(--card)}
 </style>
 </head>
@@ -127,8 +135,36 @@ th.n{text-align:center}
     <div class="kpi"><div class="v" id="k6">–</div><div class="l">หัก 20 บาททุกงาน รวม (บาท)</div></div>
     <div class="kpi"><div class="v" id="k7">–</div><div class="l">ยอดหลังหักภาษี ณ ที่จ่าย รวม (บาท)</div></div>
     <div class="kpi"><div class="v" id="k3">–</div><div class="l">เฉลี่ยต่องาน (บาท)</div></div>
-    <div class="kpi"><div class="v" id="k4">–</div><div class="l">งานที่ยังไม่ส่ง (ไม่รวมยกเลิก)</div></div>
+    <div class="kpi"><div class="v" id="k4">–</div><div class="l">งานที่ยังไม่ส่ง (ไม่รวมยกเลิก/คีย์เอง)</div></div>
     <div class="kpi"><div class="v" id="k5">–</div><div class="l">ยกเลิกเปิดเคลม</div></div>
+  </section>
+
+  <section class="card" id="mpanel" hidden>
+    <h2>เพิ่มงานที่ไม่อยู่ในระบบ (คีย์เอง)</h2>
+    <form id="mform" class="mgrid">
+      <label>วันที่ Assign *<input type="date" id="m_date" required></label>
+      <label>เวลารับแจ้ง<input type="time" id="m_time"></label>
+      <label>ค่าสำรวจ (บาท) *<input type="number" id="m_fee" min="0" step="1" required></label>
+      <label>เลขที่รับแจ้ง<input id="m_id" placeholder="เว้นว่าง = สร้างเลข MAN-… ให้"></label>
+      <label>เลขที่กรมธรรม์<input id="m_policy"></label>
+      <label>ผลฝ่ายถูกผิด
+        <select id="m_res"><option value=""></option><option>รถประกันเป็นฝ่ายถูก</option><option>รถประกันเป็นฝ่ายผิด</option><option>ประมาทร่วม</option><option>รอผลคดี</option></select>
+      </label>
+      <label>ประเภทเคลม
+        <select id="m_claim"><option value=""></option><option>เคลมสด</option><option>เคลมใน</option><option>เคลมนัดหมาย</option></select>
+      </label>
+      <label>หมายเหตุ<input id="m_note"></label>
+      <div class="mact">
+        <button type="submit">บันทึก</button>
+        <button type="button" class="ghost" id="mCancel">ปิด</button>
+        <span class="mmsg" id="mOut"></span>
+      </div>
+    </form>
+    <div class="mcopy" id="mCopy" hidden>
+      <p>คัดลอกแถวนี้ไปวางในแถวว่างถัดไปของแท็บ <b>manual</b> (คอลัมน์ A) เพื่อเก็บถาวร ตอนนี้แสดงบนหน้าจอชั่วคราวเท่านั้น</p>
+      <textarea id="mTsv" rows="2" readonly></textarea>
+      <div><button type="button" id="mCopyBtn">คัดลอกแถว</button></div>
+    </div>
   </section>
 
   <section class="grid">
@@ -141,6 +177,7 @@ th.n{text-align:center}
         <h2>รายการทั้งหมด</h2>
         <input id="q" placeholder="ค้นหาเลขรับแจ้ง / กรมธรรม์" style="min-width:230px">
         <button id="xl" title="ส่งออกตารางนี้เป็นไฟล์ Excel จัดหน้า A4">ส่งออก Excel (A4)</button>
+        <button id="mAdd" title="เพิ่มงานที่ไม่อยู่ในระบบ">+ เพิ่มงานนอกระบบ</button>
       </div>
       <div class="tablewrap"><table id="tbl"><thead></thead><tbody></tbody></table></div>
     </div>
@@ -154,6 +191,16 @@ const SHEET_TAB = "history_all";
 const CSV_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(SHEET_TAB)}`;
 const DONE = ["ส่งงานแล้ว"];
 const isCancel = x => x.status.startsWith("ยกเลิก");
+
+/* ===== งานนอกระบบที่คีย์เอง: อ่านจากแท็บ manual ===== */
+const MANUAL_TAB = "manual";
+const MANUAL_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(MANUAL_TAB)}`;
+const MANUAL_STATUS = "คีย์เอง";
+/* บันทึกลงชีทอัตโนมัติ (ไม่บังคับ): วาง URL ของ Apps Script และรหัสที่ตั้งไว้ ถ้าเว้นว่างจะใช้วิธีคัดลอกแถวไปวางเอง */
+const APPS_URL = "";
+const APPS_SECRET = "";
+/* ใช้คำนวณ "หัก 20 บาท" และ "หลังหักภาษี ณ ที่จ่าย" ของงานคีย์เอง (ให้ตรงกับสูตรในชีท) */
+const DEDUCT = 20, WHT_RATE = 0.05;
 
 /* ===== KPI: เป้าวิ่งงานต่อวัน (ได้ครบเป้า = 100%) ===== */
 const DAILY_TARGET = 5;
@@ -171,7 +218,8 @@ const XL_ORIENT = "landscape";
 const $ = id => document.getElementById(id);
 const fmt = n => Math.round(n).toLocaleString("th-TH");
 const fmt2 = n => n.toLocaleString("th-TH",{minimumFractionDigits:0,maximumFractionDigits:2});
-let ALL = [], charts = {}, sortKey = "iso", sortDir = -1, inited = false, LAST = [];
+const pad = n => String(n).padStart(2,"0");
+let ALL = [], charts = {}, sortKey = "iso", sortDir = -1, inited = false, LAST = [], PENDING = [];
 let MODE = "month", CUR = "", ANCHOR = "", RANGE = {from:"", to:""};
 let HAS_NET = false, HAS_WHT = false;
 
@@ -201,6 +249,7 @@ function toISO(s){
 }
 function showMsg(t){ $("msg").hidden=!t; $("msg").textContent=t||""; }
 const dmy = iso => iso.slice(8,10)+"/"+iso.slice(5,7)+"/"+iso.slice(0,4);
+const thaiDate = iso => iso?`${iso.slice(8,10)}/${iso.slice(5,7)}/${+iso.slice(0,4)+543}`:"";
 
 /* ===== ช่วงเวลา: ปี / ไตรมาส / เดือน / 15 วัน / วัน ===== */
 function keyOf(iso, mode){
@@ -264,6 +313,47 @@ function renderBar(){
   $("pnext").disabled=!(i>0);
 }
 
+/* ===== งานคีย์เอง: แปลงข้อมูลหนึ่งแถวให้เป็นรูปแบบเดียวกับงานในระบบ ===== */
+function manualObj(f){
+  const fee=parseFloat(String(f.fee).replace(/,/g,""))||0;
+  const iso=toISO(f.date);
+  const time=(f.time||"").trim();
+  return {
+    status:f.status||MANUAL_STATUS, id:f.id, policy:f.policy||"",
+    d:iso?thaiDate(iso):(f.date||""), time,
+    fee,
+    net20:fee>DEDUCT?fee-DEDUCT:NaN,
+    wht:fee>DEDUCT?Math.round((fee-DEDUCT)*(1-WHT_RATE)*100)/100:0,
+    res:f.res||"", claim:f.claim||"", note:f.note||"",
+    pulled:"", iso, hour:parseInt(time.split(":")[0],10), manual:true
+  };
+}
+async function loadManual(){
+  const out={objs:[],bad:0};
+  try{
+    const res=await fetch(MANUAL_URL,{cache:"no-store"});
+    if(!res.ok) return out;
+    const text=await res.text();
+    if(/^\s*<(!doctype|html)/i.test(text)) return out;
+    const rows=parseCSV(text);
+    if(!rows.length) return out;
+    const header=rows.shift().map(h=>h.trim());
+    const ix=n=>header.indexOf(n);
+    const I={id:ix("เลขที่รับแจ้ง"),policy:ix("เลขที่กรมธรรม์"),date:ix("วันที่ Assign"),time:ix("เวลารับแจ้ง"),
+             fee:ix("ค่าสำรวจ"),res:ix("ผลฝ่ายถูกผิด"),claim:ix("ประเภทเคลม"),status:ix("สถานะ"),note:ix("หมายเหตุ")};
+    if(I.date<0||I.fee<0||I.note<0) return out;     /* ไม่ใช่แท็บ manual (เช่น ยังไม่มีแท็บนี้) */
+    rows.forEach((c,k)=>{
+      if(!c.some(x=>(x||"").trim()!=="")) return;
+      const g=v=>v>=0?(c[v]||"").trim():"";
+      const o=manualObj({id:g(I.id)||("MAN-R"+(k+2)),policy:g(I.policy),date:g(I.date),time:g(I.time),
+                         fee:g(I.fee),res:g(I.res),claim:g(I.claim),status:g(I.status),note:g(I.note)});
+      if(!o.iso){ out.bad++; return; }
+      out.objs.push(o);
+    });
+  }catch(e){}
+  return out;
+}
+
 async function load(){
   $("updated").textContent="กำลังโหลดข้อมูล…"; showMsg("");
   try{
@@ -312,11 +402,25 @@ async function load(){
       o.hour=parseInt(o.time.split(":")[0],10);
       map.set(o.id,o);
     });
+
+    /* รวมงานที่คีย์เอง (แท็บ manual) ถ้าเลขซ้ำกับงานในระบบ ให้ใช้ของในระบบ */
+    const man=await loadManual();
+    let manN=0, manDup=0;
+    man.objs.forEach(o=>{
+      if(map.has(o.id)&&!map.get(o.id).manual){ manDup++; return; }
+      map.set(o.id,o); manN++;
+    });
+    PENDING=PENDING.filter(p=>!map.has(p.id));          /* งานที่เพิ่งคีย์และยังไม่ขึ้นในชีท */
+    PENDING.forEach(p=>{ map.set(p.id,p); manN++; });
+
     ALL=[...map.values()];
     if(!ALL.length) throw new Error("อ่านชีทได้แต่ไม่มีแถวข้อมูล");
     const latest=ALL.map(x=>x.pulled).sort().pop();
     $("updated").textContent="ข้อมูลล่าสุดจากชีท: "+(latest||"-")+" • "+ALL.length+" รายการ"+
-      (noAssign?` • ${noAssign} รายการยังไม่มีวันที่ Assign (ใช้วันที่รับแจ้งแทน${overridden?`, แก้เอง ${overridden} รายการ`:""})`:"");
+      (noAssign?` • ${noAssign} รายการยังไม่มีวันที่ Assign (ใช้วันที่รับแจ้งแทน${overridden?`, แก้เอง ${overridden} รายการ`:""})`:"")+
+      (manN?` • คีย์เอง ${manN} รายการ`:"")+
+      (man.bad?` • คีย์เองอ่านวันที่ไม่ได้ ${man.bad} แถว`:"")+
+      (manDup?` • คีย์เองซ้ำกับในระบบ ${manDup} แถว (ใช้ของในระบบ)`:"");
     const miss=[];
     if(!HAS_NET) miss.push("หัก20 บาททุกงาน");
     if(!HAS_WHT) miss.push("ยอดค่าใช้จ่ายหลังหักภาษี ณ ที่จ่าย");
@@ -450,7 +554,7 @@ function render(){
   $("k1").textContent=fmt(D.length);
   $("k2").textContent=fmt(total);
   $("k3").textContent=D.length?fmt(total/D.length):"–";
-  $("k4").textContent=fmt(D.filter(x=>!DONE.includes(x.status)&&!isCancel(x)).length);
+  $("k4").textContent=fmt(D.filter(x=>!DONE.includes(x.status)&&!isCancel(x)&&!x.manual).length);
   $("k5").textContent=fmt(D.filter(isCancel).length);
   $("k6").textContent=HAS_NET?fmt2(sumF("net20")):"–";
   $("k7").textContent=HAS_WHT?fmt2(sumF("wht")):"–";
@@ -580,6 +684,48 @@ async function exportXlsx(){
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(()=>URL.revokeObjectURL(a.href),1500);
 }
+
+/* ===== ฟอร์มเพิ่มงานนอกระบบ ===== */
+function todayISO(){ const d=new Date(); return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate()); }
+function mOut(t,bad){ const e=$("mOut"); e.textContent=t||""; e.style.color=bad?"var(--c)":"var(--ok)"; }
+$("mAdd").addEventListener("click",()=>{
+  const p=$("mpanel"); p.hidden=!p.hidden;
+  if(!p.hidden){ if(!$("m_date").value) $("m_date").value=todayISO(); p.scrollIntoView({behavior:"smooth",block:"center"}); }
+});
+$("mCancel").addEventListener("click",()=>{ $("mpanel").hidden=true; });
+$("mform").addEventListener("submit",async ev=>{
+  ev.preventDefault(); mOut(""); $("mCopy").hidden=true;
+  const date=$("m_date").value, feeRaw=$("m_fee").value;
+  if(!date){ mOut("เลือกวันที่ Assign ก่อน",true); return; }
+  if(feeRaw===""||!(parseFloat(feeRaw)>=0)){ mOut("กรอกค่าสำรวจ (ใส่ 0 ได้ถ้าไม่มี)",true); return; }
+  const now=new Date();
+  const f={id:$("m_id").value.trim(),policy:$("m_policy").value.trim(),date,time:$("m_time").value,fee:feeRaw,
+           res:$("m_res").value,claim:$("m_claim").value,status:MANUAL_STATUS,note:$("m_note").value.trim()};
+  if(!f.id) f.id="MAN-"+now.getFullYear()+pad(now.getMonth()+1)+pad(now.getDate())+"-"+pad(now.getHours())+pad(now.getMinutes())+pad(now.getSeconds());
+  if(ALL.some(x=>x.id===f.id)){ mOut("เลขที่รับแจ้งนี้มีอยู่แล้ว",true); return; }
+  const row=[f.id,f.policy,f.date,f.time,f.fee,f.res,f.claim,f.status,f.note];
+  if(APPS_URL){
+    try{
+      await fetch(APPS_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain;charset=utf-8"},
+                            body:JSON.stringify({secret:APPS_SECRET,row})});
+      PENDING.push(manualObj(f));
+      mOut("ส่งแล้ว: "+f.id+" (ตรวจในแท็บ manual ของชีทได้)");
+      $("mform").reset(); $("m_date").value=todayISO();
+      load(); setTimeout(load,6000);
+    }catch(e){ mOut("ส่งไม่สำเร็จ: "+e.message,true); }
+  }else{
+    $("mTsv").value=row.join("\t"); $("mCopy").hidden=false;
+    PENDING.push(manualObj(f));
+    mOut("แสดงในแดชบอร์ดชั่วคราวแล้ว — วางแถวด้านล่างในแท็บ manual เพื่อเก็บถาวร");
+    $("mform").reset(); $("m_date").value=todayISO();
+    load();
+  }
+});
+$("mCopyBtn").addEventListener("click",async()=>{
+  const t=$("mTsv");
+  try{ await navigator.clipboard.writeText(t.value); }catch(e){ t.select(); document.execCommand("copy"); }
+  mOut("คัดลอกแล้ว วางในแถวว่างถัดไปของแท็บ manual (คอลัมน์ A)");
+});
 
 /* ===== ปุ่มและตัวควบคุม ===== */
 document.querySelectorAll("#pbar button[data-m]").forEach(b=>b.addEventListener("click",()=>{

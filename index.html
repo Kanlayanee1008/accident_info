@@ -203,7 +203,7 @@ const MANUAL_STATUS = "คีย์เอง";
 /* ===== บันทึกงานคีย์เองลงชีทโดยล็อกอิน Google ในหน้านี้ =====
    ใส่ OAuth Client ID จาก Google Cloud (ชนิด Web application, ไม่ใช่ความลับ)
    ถ้าเว้นว่าง จะใช้วิธีคัดลอกแถวไปวางในแท็บ manual เอง */
-const GOOGLE_CLIENT_ID = "889739748392-b396cqa2s58tp0rl0btd6f17gjpplf06.apps.googleusercontent.com";
+const GOOGLE_CLIENT_ID = "";
 const SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets";
 /* ใช้คำนวณ "หัก 20 บาท" และ "หลังหักภาษี ณ ที่จ่าย" ของงานคีย์เอง (ให้ตรงกับสูตรในชีท) */
 const DEDUCT = 20, WHT_RATE = 0.05;
@@ -399,9 +399,10 @@ async function load(){
         pulled:g(I.pulled)
       };
       if(!o.id) return;
-      /* นับตามวันที่ Assign ถ้ายังไม่มีใช้วันที่รับแจ้ง/เกิดเหตุแทน */
+      /* นับตามวันที่ Assign เท่านั้น: งานที่ยังไม่มีวันที่ Assign จะไม่ถูกนับในวันใด
+         ยกเว้นงานสถานะ "ยกเลิกเปิดเคลม" (ไม่มีหน้ารายละเอียด) ใช้วันที่เกิดเหตุแทน */
       const asg=toISO(g(I.asgISO))||toISO(g(I.asg));
-      o.iso=asg||toISO(g(I.nISO))||toISO(g(I.nD))||toISO(g(I.accISO))||toISO(g(I.accD));
+      o.iso=asg||(o.status.startsWith("ยกเลิก")?(toISO(g(I.accISO))||toISO(g(I.accD))):"");
       if(!asg) noAssign++;
       /* แก้ชั่วคราว: เฉพาะงานที่ยังไม่มีวันที่ Assign ในชีท */
       if(!asg && OVERRIDE[o.id]){ o.iso=OVERRIDE[o.id]; overridden++; }
@@ -423,7 +424,7 @@ async function load(){
     if(!ALL.length) throw new Error("อ่านชีทได้แต่ไม่มีแถวข้อมูล");
     const latest=ALL.map(x=>x.pulled).sort().pop();
     $("updated").textContent="ข้อมูลล่าสุดจากชีท: "+(latest||"-")+" • "+ALL.length+" รายการ"+
-      (noAssign?` • ${noAssign} รายการยังไม่มีวันที่ Assign (ใช้วันที่รับแจ้งแทน${overridden?`, แก้เอง ${overridden} รายการ`:""})`:"")+
+      (noAssign?` • ${noAssign} รายการยังไม่มีวันที่ Assign (ไม่นับในช่วงเวลา${overridden?`, แก้เอง ${overridden} รายการ`:""})`:"")+
       (manN?` • คีย์เอง ${manN} รายการ`:"")+
       (man.bad?` • คีย์เองอ่านวันที่ไม่ได้ ${man.bad} แถว`:"")+
       (manDup?` • คีย์เองซ้ำกับในระบบ ${manDup} แถว (ใช้ของในระบบ)`:"");

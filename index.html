@@ -172,7 +172,7 @@ th.n{text-align:center}
   </section>
 
   <section class="grid">
-    <div class="card s8"><h2>จำนวนงานและค่าใช้จ่ายรายวัน (ตามวันที่ Assign)</h2><div class="chart"><canvas id="cDaily"></canvas></div></div>
+    <div class="card s8"><h2 id="dailyTitle">จำนวนงานและค่าใช้จ่ายรายวัน (ตามวันที่ Assign)</h2><div class="chart"><canvas id="cDaily"></canvas></div></div>
     <div class="card s4"><h2>สัดส่วนตามสถานะ</h2><div class="chart"><canvas id="cStatus"></canvas></div></div>
     <div class="card s6"><h2>ช่วงเวลาที่รับแจ้ง (ชั่วโมง)</h2><div class="chart"><canvas id="cHour"></canvas></div></div>
     <div class="card s6"><h2>จำนวนงานตามอัตราค่าสำรวจ</h2><div class="chart"><canvas id="cFee"></canvas></div></div>
@@ -458,7 +458,7 @@ function draw(key,cfg){
   charts[key]=new Chart($(key),cfg);
 }
 
-/* ===== วาดตัวเลขบนกราฟรายวัน (แท่ง = จำนวนงาน, เส้น = ค่าสำรวจ) ===== */
+/* ===== วาดตัวเลขบนกราฟแรก (แท่ง = จำนวนงาน, เส้น = ค่าสำรวจ) ===== */
 const valueLabels={
   id:"valueLabels",
   afterDatasetsDraw(chart){
@@ -572,13 +572,17 @@ function render(){
   Chart.defaults.color=col("--mute");
   const grid={color:col("--line")};
 
-  const byDay={};D.forEach(x=>{if(!x.iso)return;(byDay[x.iso]??={n:0,fee:0});byDay[x.iso].n++;byDay[x.iso].fee+=x.fee;});
+  /* กราฟแรก: รายปี/ดูทั้งหมด = สรุปเป็นรายเดือน  โหมดอื่น = รายวัน */
+  const monthly=(MODE==="year"||MODE==="all");
+  const byDay={};D.forEach(x=>{if(!x.iso)return;const k=monthly?x.iso.slice(0,7):x.iso;(byDay[k]??={n:0,fee:0});byDay[k].n++;byDay[k].fee+=x.fee;});
   const days=Object.keys(byDay).sort();
-  draw("cDaily",{data:{labels:days.map(d=>d.slice(5)),datasets:[
-    {type:"bar",label:"จำนวนงาน",data:days.map(d=>byDay[d].n),backgroundColor:col("--a"),yAxisID:"y",borderRadius:3},
-    {type:"line",label:"ค่าสำรวจ (บาท)",data:days.map(d=>byDay[d].fee),borderColor:col("--b"),backgroundColor:col("--b"),yAxisID:"y1",tension:.25,pointRadius:3}]},
+  const lblOf=k=>monthly?(TH_M[+k.slice(5,7)-1]+(MODE==="all"?" "+k.slice(2,4):"")):k.slice(5);
+  $("dailyTitle").textContent=monthly?"จำนวนงานและค่าใช้จ่ายรายเดือน (ตามวันที่ Assign)":"จำนวนงานและค่าใช้จ่ายรายวัน (ตามวันที่ Assign)";
+  draw("cDaily",{data:{labels:days.map(lblOf),datasets:[
+    {type:"bar",label:"จำนวนงาน",data:days.map(d=>byDay[d].n),backgroundColor:col("--a"),yAxisID:"y",borderRadius:3,maxBarThickness:monthly?56:undefined},
+    {type:"line",label:"ค่าสำรวจ (บาท)",data:days.map(d=>byDay[d].fee),borderColor:col("--b"),backgroundColor:col("--b"),yAxisID:"y1",tension:.25,pointRadius:monthly?4:3}]},
     plugins:[valueLabels],
-    options:{maintainAspectRatio:false,layout:{padding:{top:22}},scales:{x:{grid:{display:false}},y:{grid,title:{display:true,text:"งาน"},beginAtZero:true,grace:"12%",ticks:{precision:0}},y1:{position:"right",grid:{display:false},beginAtZero:true,grace:"12%",title:{display:true,text:"บาท"}}}}});
+    options:{maintainAspectRatio:false,layout:{padding:{top:22}},scales:{x:{grid:{display:false},ticks:{autoSkip:!monthly}},y:{grid,title:{display:true,text:"งาน"},beginAtZero:true,grace:"12%",ticks:{precision:0}},y1:{position:"right",grid:{display:false},beginAtZero:true,grace:"12%",title:{display:true,text:"บาท"}}}}});
 
   const bySt={};D.forEach(x=>bySt[x.status]=(bySt[x.status]||0)+1);
   draw("cStatus",{type:"doughnut",data:{labels:Object.keys(bySt),datasets:[{data:Object.values(bySt),backgroundColor:[col("--a"),col("--b"),col("--c"),col("--d"),"#8aa"],borderWidth:0}]},
